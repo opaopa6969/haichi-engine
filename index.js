@@ -50,18 +50,21 @@ export function textWidth(str, cw) {
 }
 /** 幅に収まるところまで切り、入らなければ末尾を削って「…」のぶんを空ける */
 export function fitText(str, width, cw) {
-  const w = (ch) => (ch.charCodeAt(0) > 255 ? cw * 1.75 : cw);
+  const w = (ch) => (ch.codePointAt(0) > 255 ? cw * 1.75 : cw);
   const ELL = cw * 1.75;
-  let acc = 0, out = '';
-  for (const ch of String(str ?? '')) {
+  // **コード単位ではなくコードポイントで扱う。** `out.slice(0, -1)` で削ると
+  // サロゲートペアが半分に切れ、不正な UTF-16（絵文字の片割れ）を返していた
+  const chars = [...String(str ?? '')];
+  let acc = 0; const out = [];
+  for (const ch of chars) {
     if (acc + w(ch) > width) {
-      while (out && acc + ELL > width) { acc -= w(out[out.length - 1]); out = out.slice(0, -1); }
+      while (out.length && acc + ELL > width) acc -= w(out.pop());
       // 「…」1 文字すら入らない幅なら、何も返さない（1 文字だけ出しても意味がない）
-      return acc + ELL <= width ? out + '…' : '';
+      return acc + ELL <= width ? out.join('') + '…' : '';
     }
-    acc += w(ch); out += ch;
+    acc += w(ch); out.push(ch);
   }
-  return out;
+  return out.join('');
 }
 
 // ---------------------------------------------------------------- 配置
@@ -196,9 +199,19 @@ export function treemap(items, { x = 0, y = 0, w = 1000, h = 1000, padding = 4, 
   }
   return out;
 }
+// squarified の評価関数（Bruls ら 2000）。行に入れた矩形の縦横比のうち最悪のものを返す。
+// 元は式を書き損じており、重みが偏ると 13,337:1 のような矩形を作っていた（volta-wm の指摘）。
+//   行の厚み w = sum / side、各矩形の長さ = a / w なので、比は max(w/(a/w), (a/w)/w)
 const worst = (areas, sum, side) => {
-  const t = sq(sum / side);
-  return Math.max(...areas.map((a) => Math.max((t * a) / sq(sum) * side * side / a / a * a, a / t)));
+  if (!sum || !side) return Infinity;
+  const w = sum / side;                       // 行の厚み
+  let out = 1;
+  for (const a of areas) {
+    if (a <= 0) return Infinity;
+    const len = a / w;                        // その矩形の長さ
+    out = Math.max(out, w / len, len / w);
+  }
+  return out;
 };
 
 /**
@@ -209,6 +222,9 @@ const worst = (areas, sum, side) => {
 export function relax(items, opts = {}) {
   const { gap = 2, iterations = 60, strength = 0.5, pinned = new Set(), axis = 'xy', maxMove = Infinity, grid = 0, bounds = null } = opts;
   const a = items.map((it) => ({ ...it, _ox: it.x, _oy: it.y }));
+  // **まず全部を領域内へ入れる。** 以前は重なった対を処理したときにしか clamp して
+  // おらず、誰とも重なっていない単独の図形が領域の外に残っていた（volta-wm の指摘）
+  if (bounds) for (const it of a) if (!pinned.has(it.id)) clampToBounds(it, bounds);
   for (let k = 0; k < iterations; k++) {
     let moved = 0;
     for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) {
@@ -238,9 +254,29 @@ export function relax(items, opts = {}) {
     }
     if (moved < 0.01) break;
   }
-  // 領域の外へ押し出して重なりを消す、という解は解決ではない（netmahg の指摘）。
-  // bounds を渡されたら毎回引き戻す。入りきらないなら重なったまま残り、measure が報告する
-  if (grid > 0) for (const it of a) { it.x = Math.round(it.x / grid) * grid; it.y = Math.round(it.y / grid) * grid; }
+  // 格子への丸めは、離れていたものを同じマスに戻すことがある（volta-wm の指摘）。
+  // 丸めたあとに衝突したら、空いている隣のマスへ逃がす。
+  if (grid > 0) {
+    const taken = new Map();
+    // 動かしたくないものから先に席を取る
+    const order = [...a].sort((p, q) => (pinned.has(q.id) ? 1 : 0) - (pinned.has(p.id) ? 1 : 0));
+    for (const it of order) {
+      let gx = Math.round(it.x / grid) * grid, gy = Math.round(it.y / grid) * grid;
+      if (taken.has(`${gx},${gy}`) && !pinned.has(it.id)) {
+        // 中心から外へ、渦を描くように空きマスを探す
+        let placed = false;
+        for (let ring = 1; ring <= 16 && !placed; ring++) {
+          for (let dy = -ring; dy <= ring && !placed; dy++) for (let dx = -ring; dx <= ring && !placed; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+            const nx = gx + dx * grid, ny = gy + dy * grid;
+            if (bounds) { const t = { ...it, x: nx, y: ny }; clampToBounds(t, bounds); if (t.x !== nx || t.y !== ny) continue; }
+            if (!taken.has(`${nx},${ny}`)) { gx = nx; gy = ny; placed = true; }
+          }
+        }
+      }
+      it.x = gx; it.y = gy; taken.set(`${gx},${gy}`, it.id);
+    }
+  }
   for (const it of a) { delete it._ox; delete it._oy; }
   return new Map(a.map((it) => [it.id, it]));
 }
@@ -335,7 +371,16 @@ export function measure(shapes, edges = [], opts = {}) {
       problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」は使える幅 ${inner.toFixed(0)}px に 1 文字も入らない（必要 ${full.toFixed(0)}px）— 図形を広げるか、placeLabels() で外に出すか、この深さでは名前を出さない` });
       continue;
     }
-    if (cut !== s.label) truncated++;   // 読める形には収まったが、情報は落ちている
+    if (cut !== s.label) {
+      truncated++;   // 読める形には収まったが、情報は落ちている
+      // 切り詰めが許されない用途（スライドのカード、ボタン、バッジ）では、
+      // 「この幅では全文が入らない」こと自体が不具合。既定は許す（図では普通のこと）
+      if (opts.allowEllipsis === false) {
+        overflow++;
+        problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」は全文が入らない（必要 ${full.toFixed(0)}px > 使える幅 ${inner.toFixed(0)}px、${(full - inner).toFixed(0)}px 不足）— 幅を広げるか、文言を短くする` });
+        continue;
+      }
+    }
     const tw = textWidth(cut, font * cw);
     if (tw > inner + 0.5) { overflow++; problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」が ${(tw - inner).toFixed(1)}px はみ出す（文字 ${tw.toFixed(0)}px > 使える幅 ${inner.toFixed(0)}px）— fitText() を通すか図形を広げる` }); }
   }
@@ -371,6 +416,12 @@ export function measure(shapes, edges = [], opts = {}) {
   const xs = shapes.map((s) => s.x), ys = shapes.map((s) => s.y);
   const W = Math.max(...xs) - Math.min(...xs) || 1, H = Math.max(...ys) - Math.min(...ys) || 1;
   const ar = W / H;
+  // 個別の図形の縦横比。全体だけ見ていると、細長い矩形が 1 枚混ざっても気づかない
+  if (!opts.scrollable) for (const s of shapes) {
+    if (s.w == null || s.h == null || s.w <= 0 || s.h <= 0) continue;
+    const a2 = Math.max(s.w, s.h) / Math.min(s.w, s.h);
+    if (a2 > 20 && problems.length < 500) problems.push({ code: 'H106', id: s.id, message: `${s.id} の縦横比が ${a2.toFixed(1)}:1（${s.w.toFixed(1)}x${s.h.toFixed(1)}、目安 20:1 以下）— 面積の重みが偏りすぎている。値を対数にするか、小さいものをまとめる` });
+  }
   // 手牌やツールバーのように「一列に並べてスクロールさせる」のが正しい用途もあるので、
   // scrollable を渡されたら責めない（netmahg の指摘: 正しい一列手牌に 522:1 と警告した）
   if (!opts.scrollable && shapes.length > 3 && (ar > 6 || ar < 1 / 6)) problems.push({ code: 'H106', id: '(全体)', message: `縦横比が ${ar.toFixed(1)}:1 で極端 — 画面に収めると読めなくなる。段組みにするか、意図した一列なら scrollable:true を渡す` });

@@ -325,4 +325,89 @@ ok('relax も混在を押し離せる', () => {
   assert.ok(overlapOf(m.get('c'), m.get('q'), 0) <= 0.5, '混在だと押し離せない');
 });
 
+
+// --- volta-wm（ウィンドウマネージャ）の実地検証で出た P0 3 件を固定する
+
+ok('単独で領域外にあるものも bounds 内へ入れる', () => {
+  // 誰とも重なっていないと、以前は押し離しの処理に入らず外に残っていた
+  const b = { x: 200, y: 200, w: 400, h: 400 };
+  const m = relax([{ id: 'lone', x: 800, y: 200, w: 60, h: 40 }], { bounds: b, iterations: 50 });
+  const r = measure([...m.values()], [], { bounds: b });
+  assert.equal(r.metrics.outside, 0, `領域外に残った（x=${m.get('lone').x}）`);
+});
+
+ok('treemap は現実的な重みで正方形に近い矩形を作る', () => {
+  // worst() の式が壊れていて、以前は 13,337:1 のような矩形を作っていた
+  for (const [name, items] of Object.entries({
+    even: Array.from({ length: 10 }, (_, i) => ({ id: `x${i}`, value: 1 })),
+    zipf: Array.from({ length: 20 }, (_, i) => ({ id: `y${i}`, value: Math.round(100 / (i + 1)) })),
+    expo: Array.from({ length: 40 }, (_, i) => ({ id: `z${i}`, value: Math.round(1000 * Math.exp(-i / 6)) + 1 })),
+  })) {
+    const t = treemap(items, { w: 800, h: 600, padding: 0 });
+    const ars = [...t.values()].map((c) => Math.max(c.w, c.h) / Math.max(1e-9, Math.min(c.w, c.h)));
+    assert.ok(Math.max(...ars) < 4, `${name}: 最悪の縦横比が ${Math.max(...ars).toFixed(1)}:1`);
+    const area = [...t.values()].reduce((a, c) => a + c.w * c.h, 0);
+    assert.ok(Math.abs(area / (800 * 600) - 1) < 0.01, `${name}: 充填率 ${(area / 480000).toFixed(3)}`);
+  }
+});
+
+ok('極端に偏った重みは H106 が個別に報告する', () => {
+  // 1 件が面積の 99.97% を占めるなら、残りが細くなるのはデータの性質。
+  // レイアウトのせいにせず、そう報告する
+  const t = treemap([{ id: 'a', value: 10000 }, { id: 'b', value: 1 }], { w: 800, h: 600, padding: 0 });
+  const shapes = [...t].map(([id, c]) => ({ id, ...c }));
+  const r = measure(shapes, []);
+  assert.ok(r.problems.some((p) => p.code === 'H106' && p.id === 'b'), '細長い矩形を個別に報告していない');
+});
+
+ok('grid の丸めで同じマスに戻さない', () => {
+  let bad = 0;
+  for (const g of [20, 40, 64]) for (let dx = 1; dx < g; dx++) {
+    const m = relax([{ id: 'a', x: 0, y: 0, w: g * 0.8, h: g * 0.8 }, { id: 'b', x: dx, y: 0, w: g * 0.8, h: g * 0.8 }], { grid: g, iterations: 200, gap: 0 });
+    if (measure([...m.values()], [], { gap: 0 }).metrics.overlaps > 0) bad++;
+  }
+  assert.equal(bad, 0, `${bad} 通りで同じマスに戻った`);
+});
+
+ok('grid で逃がしても pinned は動かさない', () => {
+  const m = relax([{ id: 'fix', x: 0, y: 0, w: 30, h: 30 }, { id: 'b', x: 5, y: 0, w: 30, h: 30 }],
+    { grid: 40, pinned: new Set(['fix']), iterations: 100, gap: 0 });
+  assert.equal(m.get('fix').x, 0); assert.equal(m.get('fix').y, 0);
+});
+
+
+// --- design-catalog（HTML 生成カタログ）の実地検証で出た欠陥を固定する
+
+ok('fitText はサロゲートペアを壊さない', () => {
+  const out = fitText('😀a', 20, 10);
+  assert.ok(out.isWellFormed(), `不正な UTF-16 を返した: ${JSON.stringify(out)}`);
+  assert.equal(fitText('😀😀😀', 60, 10), '😀😀😀', '入るのに切った');
+  for (const w of [5, 10, 15, 20, 40, 60]) assert.ok(fitText('😀あa😀', w, 8).isWellFormed(), `幅 ${w} で壊れた`);
+});
+
+ok('allowEllipsis:false なら全文が入らないことを報告する（H102）', () => {
+  // 「この幅で溢れる」は、カタログの品質チェックで一番欲しい検査。
+  // 既定（図では切り詰めが普通）では出さず、明示したときだけ出す
+  const s = { id: 'card', x: 0, y: 0, w: 160, h: 80, label: '既存の手順を大きく変えずに導入できます', font: 14 };
+  assert.equal(measure([s], []).problems.length, 0, '既定で騒いだ');
+  const r = measure([s], [], { allowEllipsis: false });
+  const p = r.problems.find((x) => x.code === 'H102');
+  assert.ok(p, '全文が入らないのに黙った');
+  assert.match(p.message, /不足/);
+  assert.ok(r.metrics.overflow >= 1);
+});
+
+ok('allowEllipsis:false でも入るものは責めない', () => {
+  const s = { id: 'ok', x: 0, y: 0, w: 300, h: 40, label: '短い', font: 14 };
+  assert.equal(measure([s], [], { allowEllipsis: false }).problems.length, 0);
+});
+
+ok('treemap は 16:9 に同値 4 件を 2x2 に割る', () => {
+  const t = treemap([1, 2, 3, 4].map((i) => ({ id: `c${i}`, value: 1 })), { w: 960, h: 540, padding: 0 });
+  const ars = [...t.values()].map((c) => Math.max(c.w, c.h) / Math.min(c.w, c.h));
+  assert.ok(Math.max(...ars) < 2.5, `横長の短冊になった（最悪 ${Math.max(...ars).toFixed(2)}:1）`);
+  const ws = new Set([...t.values()].map((c) => Math.round(c.w)));
+  assert.equal(ws.size, 1, '幅が揃っていない');
+});
+
 console.error(`test: ${n} pass`);
