@@ -1,6 +1,6 @@
 // haichi-engine の単体テスト。依存ゼロ、node test.mjs で走る。
 import assert from 'node:assert/strict';
-import { pack, tree, treemap, relax, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap } from './index.js';
+import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap } from './index.js';
 
 let n = 0; const ok = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`NG ${name}: ${e.message}`); process.exitCode = 1; } };
 
@@ -231,6 +231,71 @@ ok('relax は maxMove で元位置からの距離を縛れる', () => {
 ok('relax は grid で格子に載せ直す', () => {
   const m = relax([{ id: 'a', x: 0, y: 0, r: 20 }, { id: 'b', x: 7, y: 3, r: 20 }], { grid: 40, iterations: 200 });
   for (const v of m.values()) { assert.equal(Math.abs(v.x % 40), 0); assert.equal(Math.abs(v.y % 40), 0); }
+});
+
+
+// --- netmahg の実地検証で出た欠陥を固定する
+
+ok('完全に同じ位置のものを分離する', () => {
+  const m = relax([{ id: 'a', x: 0, y: 0, w: 40, h: 20 }, { id: 'b', x: 0, y: 0, w: 40, h: 20 }], { iterations: 200, gap: 0 });
+  const a = m.get('a'), b = m.get('b');
+  assert.ok(rectOverlap(a, b, 0) <= 0.5, `重なったまま（a=${a.x},${a.y} b=${b.x},${b.y}）`);
+});
+
+ok('同位置の分離は決定論的', () => {
+  const run = () => [...relax([{ id: 'a', x: 5, y: 5, r: 10 }, { id: 'b', x: 5, y: 5, r: 10 }], { iterations: 100 })].map(([k, v]) => `${k}:${v.x.toFixed(6)},${v.y.toFixed(6)}`).join('|');
+  assert.equal(run(), run());
+});
+
+ok('bounds の外へ押し出さない', () => {
+  const b = { x: 0, y: 0, w: 100, h: 100 };
+  const items = Array.from({ length: 6 }, (_, i) => ({ id: `s${i}`, x: 0, y: 0, r: 20 }));
+  const m = relax(items, { bounds: b, iterations: 300, gap: 2 });
+  for (const v of m.values()) {
+    assert.ok(Math.abs(v.x) + v.r <= b.w / 2 + 0.01, `${v.id} が横にはみ出した（x=${v.x.toFixed(1)}）`);
+    assert.ok(Math.abs(v.y) + v.r <= b.h / 2 + 0.01, `${v.id} が縦にはみ出した（y=${v.y.toFixed(1)}）`);
+  }
+});
+
+ok('入りきらなければ measure が H110 で報告する', () => {
+  const b = { x: 0, y: 0, w: 100, h: 100 };
+  const shapes = [{ id: 'big', x: 0, y: 0, w: 300, h: 20 }];
+  const r = measure(shapes, [], { bounds: b });
+  assert.ok(r.problems.some((p) => p.code === 'H110'), '領域外を見ていない');
+  assert.equal(r.metrics.outside, 1);
+});
+
+ok('scrollable なら極端な縦横比を責めない（H106）', () => {
+  const hand = Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, x: i * 40, y: 0, w: 36, h: 52 }));
+  assert.ok(measure(hand, []).problems.some((p) => p.code === 'H106'), '前提が崩れている');
+  assert.ok(!measure(hand, [], { scrollable: true }).problems.some((p) => p.code === 'H106'), 'スクロール前提でも責めた');
+});
+
+ok('grid は順序を保って並べる', () => {
+  const items = Array.from({ length: 5 }, (_, i) => ({ id: `t${i}`, w: 30, h: 40 }));
+  const { items: m } = grid(items, { x: 0, y: 0, gap: 4 });
+  const xs = items.map((it) => m.get(it.id).x);
+  for (let i = 1; i < xs.length; i++) assert.ok(xs[i] > xs[i - 1], '順序が崩れた');
+});
+
+ok('grid は cols で折り返す', () => {
+  const items = Array.from({ length: 7 }, (_, i) => ({ id: `t${i}`, w: 30, h: 40 }));
+  const { rows } = grid(items, { cols: 3, gap: 4 });
+  assert.equal(rows, 3, `行数が ${rows}`);
+});
+
+ok('grid は入りきらない量を overflow で返す（勝手に縮めない）', () => {
+  const items = Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, w: 36, h: 52 }));
+  const { overflow, width } = grid(items, { gap: 4, bounds: { w: 355, h: 200 }, cols: 0 });
+  assert.ok(width <= 355 + 40, `折り返していない（width=${width}）`);
+  const flat = grid(items, { gap: 4, cols: 99 });
+  assert.ok(flat.width > 355, '一列なら 355 を超えるはず');
+});
+
+ok('grid は gapAfter で牌の間隔を空けられる（ツモ牌）', () => {
+  const items = [{ id: 'a', w: 30, h: 40, gapAfter: 20 }, { id: 'b', w: 30, h: 40 }];
+  const { items: m } = grid(items, { gap: 4 });
+  assert.ok(m.get('b').x - m.get('a').x > 30 + 4 + 10, '間隔が空いていない');
 });
 
 console.error(`test: ${n} pass`);

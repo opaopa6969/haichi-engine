@@ -12,15 +12,29 @@ import { relax, placeLabels, measure, rng, textWidth } from '../index.js';
  * 円卓の席。n 人を等間隔に置き、各席の表示域（手牌・立ち絵）が重ならないかを測る。
  * → { seats: Map<id,{x,y,r,angle}>, report }
  */
-export function roundTable(players, { radius = 200, seatRadius = 48, startAngle = -Math.PI / 2, cx = 0, cy = 0 } = {}) {
+export function roundTable(players, opts = {}) {
+  const { radius = 200, seatRadius = 48, startAngle = -Math.PI / 2, cx = 0, cy = 0,
+          clockwise = true, seatSize = null, faceCenter = true, gap = 4 } = opts;
   const n = players.length || 1;
   const seats = new Map();
   players.forEach((p, i) => {
-    const a = startAngle + (i / n) * Math.PI * 2;
-    seats.set(p.id ?? String(i), { x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius, r: seatRadius, angle: a, label: p.name ?? p.id, font: p.font ?? 14 });
+    // **時計回りが既定**。麻雀の座順（自分→下家→対面→上家）は時計回りなので、
+    // 反時計回りだと右の席が左に出る（netmahg の指摘）。
+    // 画面座標は y が下向きなので、見た目の時計回りは**角度を減らす**方向になる。
+    // ここを取り違えて 1 度実装をしくじった（テストで捕まえた）
+    const dir = clockwise ? -1 : 1;
+    const a = startAngle + dir * (i / n) * Math.PI * 2;
+    const base = { x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius, angle: a,
+                   label: p.name ?? p.id, font: p.font ?? 14 };
+    // 席は円とは限らない。細長いパネルを外接円で近似すると、空白ぶんで偽の重なりが出る
+    const size = p.size ?? seatSize;
+    const seat = size
+      ? { ...base, w: size.w, h: size.h, rotation: faceCenter ? a + Math.PI / 2 : 0 }
+      : { ...base, r: seatRadius };
+    seats.set(p.id ?? String(i), seat);
   });
-  const shapes = [...seats].map(([id, s]) => ({ id, ...s }));
-  return { seats, report: measure(shapes, [], { gap: 4 }) };
+  const shapes = [...seats].map(([id, s2]) => ({ id, ...s2 }));
+  return { seats, report: measure(shapes, [], { gap }) };
 }
 
 /**

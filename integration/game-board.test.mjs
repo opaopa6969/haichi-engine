@@ -89,4 +89,36 @@ ok('grid のときは押し離しをしない（格子を壊さない）', () =>
   for (const v of placed.values()) { assert.equal(Math.abs(v.x % 40), 0); assert.equal(Math.abs(v.y % 40), 0); }
 });
 
+
+// --- netmahg の実地検証で出た欠陥を固定する
+
+ok('roundTable は既定で時計回り（麻雀の座順）', () => {
+  // 自分（下）→ 下家（右）→ 対面（上）→ 上家（左）
+  const { seats } = roundTable([{ id: 'self' }, { id: 'right' }, { id: 'across' }, { id: 'left' }],
+    { radius: 200, startAngle: Math.PI / 2 });   // 開始を下に
+  const self = seats.get('self'), right = seats.get('right'), across = seats.get('across');
+  assert.ok(self.y > 0, '自席が下でない');
+  assert.ok(right.x < 0 ? false : true, '下家が右に来ていない');
+  assert.ok(right.x > 100, `下家 x=${right.x.toFixed(0)}（右のはず）`);
+  assert.ok(across.y < -100, `対面 y=${across.y.toFixed(0)}（上のはず）`);
+});
+
+ok('roundTable は反時計回りにもできる', () => {
+  // 2 人だと点対称で向きが判別できないので 4 人で見る
+  const P = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+  const cw = roundTable(P, { radius: 100, startAngle: Math.PI / 2 }).seats;
+  const ccw = roundTable(P, { radius: 100, startAngle: Math.PI / 2, clockwise: false }).seats;
+  assert.ok(cw.get('b').x > 50, `時計回りで b が右に来ない（x=${cw.get('b').x.toFixed(0)}）`);
+  assert.ok(ccw.get('b').x < -50, `反時計回りで b が左に来ない（x=${ccw.get('b').x.toFixed(0)}）`);
+});
+
+ok('roundTable は矩形の席域を受ける（外接円の偽陽性を避ける）', () => {
+  const players = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+  const circ = roundTable(players, { radius: 120, seatRadius: 90 });
+  const rect = roundTable(players, { radius: 120, seatSize: { w: 160, h: 40 } });
+  assert.ok(circ.report.metrics.overlaps > 0, '前提が崩れている（外接円なら重なるはず）');
+  assert.ok(rect.report.metrics.overlaps < circ.report.metrics.overlaps, '矩形にしても偽陽性が減らない');
+  assert.ok(rect.seats.get('a').rotation != null, '中心を向く回転が付いていない');
+});
+
 console.error(`game-board: ${n} pass`);

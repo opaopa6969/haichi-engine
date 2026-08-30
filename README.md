@@ -41,11 +41,17 @@ zumen（ソフトウェア構造の可視化）で実測したところ、174 �
 - **`measure` は O(n²)。** 実測で 3,583 図形 × 3,706 辺が 588ms。数千までは実用、万を超えるなら `spatialHash` で近傍だけに絞ってから渡す。
 - **決定論的。** 乱数を使うのは `rng` と `relationMap` だけで、どちらも `seed` を取る。同じ入力からは必ず同じ座標が出る。
 
+### 座標系
+
+- **`x, y` は図形の中心。** CSS の `left/top`（左上）とは違うので、DOM に渡すときは `left = x - w/2` に直す。
+- **`y` は下向き**（画面座標）。そのため見た目の時計回りは**角度を減らす**方向になる。`roundTable` の `clockwise` はこれを吸収している。
+- `measure` の `bounds` / `scrollable`: 領域を渡すと `H110`（領域外へのはみ出し）を見る。手牌のように一列＋スクロールが正しい用途では `scrollable: true` を渡すと `H106`（極端な縦横比）を出さない。
+
 ## ゲーム向けの入口（`integration/game-board.mjs`）
 
 | 関数 | 何をするか |
 |---|---|
-| `roundTable(players, opts)` | 円卓に n 人を等間隔。入りきらなければ重なりを報告する |
+| `roundTable(players, opts)` | 円卓に n 人を等間隔。**既定は時計回り**（麻雀の座順）。`seatSize` で矩形の席域（細長い席を外接円で近似すると偽の重なりが出る） |
 | `alongPath(cells, path, opts)` | 路に沿ってマスを並べる。`{ grid, orthogonal }` で整数格子・斜め禁止を守る。`path` を `[{from,to,cells}]` で渡せば**区間ごとのマス数**を指定できる（すごろくは駅間の距離がゲームそのものなので） |
 | `speechBubbles(anchors, opts)` | 吹き出しを話者の近くに、重ねずに |
 | `relationMap(nodes, ties, opts)` | 関係の強さで距離を決める。`seed` 固定 |
@@ -59,7 +65,8 @@ zumen（ソフトウェア構造の可視化）で実測したところ、174 �
 | `pack(items, opts)` | 円詰め。入れ子を再帰的に | 包含関係（パッケージ ⊃ クラス） |
 | `tree(items, opts)` | 階層。親を子の中央に | 継承・依存の向きを見せたいとき |
 | `treemap(items, opts)` | squarified treemap | 量の比較、街区の生成 |
-| `relax(items, opts)` | 重なりを押し離す。`axis` で向き、`maxMove` で元位置からの距離、`grid` で格子への載せ直しを縛れる | 既にある座標を微調整する |
+| `relax(items, opts)` | 重なりを押し離す。`axis` `maxMove` `grid` `bounds` で縛れる | 既にある座標を微調整する。**`bounds` を渡すと領域の外へ押し出さない**（外に出して重なりを消すのは解決ではない） |
+| `grid(items, opts)` | 順序を保って並べる（row / column / grid）。`cols` で折返し、`gapAfter` で個別の間隔 | 手牌・河・ツールバーのように**順番が意味を持つ**もの。入りきらない量は `overflow` で返す（勝手に縮めない） |
 | `placeLabels(shapes, opts)` | ラベルを中／周囲 8 方向へ。`prefer:'outside'` `allowInside` `dirOrder` `priority` で方針を変えられる | **内に入るかは切り詰める前の全長で判断する**（切り詰めた「…」で判定すると全部内側に詰まる）。置けなければ `hidden: true` |
 
 ### 測定
@@ -139,7 +146,7 @@ ZIR（描画非依存の JSON）を入れ子に畳み、配置と測定を返す
 
 ## 状態
 
-v0.0.1。2D 33 / 3D 20 / zumen 連携 5 / game 連携 10 の計 68 テスト。
+v0.0.2。2D 42 / 3D 20 / zumen 連携 5 / game 連携 13 の計 80 テスト。
 
 ```
 npm test

@@ -192,7 +192,7 @@ const worst = (areas, sum, side) => {
  * 位置を動かしたくないものは pinned に id を入れる。
  */
 export function relax(items, opts = {}) {
-  const { gap = 2, iterations = 60, strength = 0.5, pinned = new Set(), axis = 'xy', maxMove = Infinity, grid = 0 } = opts;
+  const { gap = 2, iterations = 60, strength = 0.5, pinned = new Set(), axis = 'xy', maxMove = Infinity, grid = 0, bounds = null } = opts;
   const a = items.map((it) => ({ ...it, _ox: it.x, _oy: it.y }));
   for (let k = 0; k < iterations; k++) {
     let moved = 0;
@@ -202,7 +202,13 @@ export function relax(items, opts = {}) {
       const ov = isCircle ? circleOverlap(p, q, gap) : rectOverlap(p, q, gap);
       if (ov <= 0) continue;
       let dx = q.x - p.x, dy = q.y - p.y;
-      const d = Math.hypot(dx, dy) || 1e-6;
+      let d = Math.hypot(dx, dy);
+      if (d < 1e-9) {
+        // **完全に同じ位置**だと方向が決まらず、何度回しても動かない（netmahg の指摘）。
+        // id から決まる角度に逃がす。乱数ではないので同じ入力なら同じ結果になる
+        const a = hashAngle(`${p.id}|${q.id}`);
+        dx = Math.cos(a); dy = Math.sin(a); d = 1;
+      }
       dx /= d; dy /= d;
       const push = (ov * strength) / 2;
       // axis で動かせる向きを制限する（3D 側に moveY があるのに 2D に軸ロックが
@@ -210,6 +216,7 @@ export function relax(items, opts = {}) {
       const kx = axis === 'y' ? 0 : 1, ky = axis === 'x' ? 0 : 1;
       if (!pinned.has(p.id)) { p.x -= dx * push * kx; p.y -= dy * push * ky; moved += push; }
       if (!pinned.has(q.id)) { q.x += dx * push * kx; q.y += dy * push * ky; moved += push; }
+      if (bounds) for (const it of [p, q]) clampToBounds(it, bounds);
       if (maxMove < Infinity) for (const it of [p, q]) {
         const d2 = Math.hypot(it.x - it._ox, it.y - it._oy);
         if (d2 > maxMove) { const k = maxMove / d2; it.x = it._ox + (it.x - it._ox) * k; it.y = it._oy + (it.y - it._oy) * k; }
@@ -217,7 +224,8 @@ export function relax(items, opts = {}) {
     }
     if (moved < 0.01) break;
   }
-  // 格子に載せたまま動かしたい場合（すごろくの盤面など）は最後にスナップする
+  // 領域の外へ押し出して重なりを消す、という解は解決ではない（netmahg の指摘）。
+  // bounds を渡されたら毎回引き戻す。入りきらないなら重なったまま残り、measure が報告する
   if (grid > 0) for (const it of a) { it.x = Math.round(it.x / grid) * grid; it.y = Math.round(it.y / grid) * grid; }
   for (const it of a) { delete it._ox; delete it._oy; }
   return new Map(a.map((it) => [it.id, it]));
@@ -341,7 +349,9 @@ export function measure(shapes, edges = [], opts = {}) {
   const xs = shapes.map((s) => s.x), ys = shapes.map((s) => s.y);
   const W = Math.max(...xs) - Math.min(...xs) || 1, H = Math.max(...ys) - Math.min(...ys) || 1;
   const ar = W / H;
-  if (shapes.length > 3 && (ar > 6 || ar < 1 / 6)) problems.push({ code: 'H106', id: '(全体)', message: `縦横比が ${ar.toFixed(1)}:1 で極端 — 画面に収めると読めなくなる。段組みにするか深さを減らす` });
+  // 手牌やツールバーのように「一列に並べてスクロールさせる」のが正しい用途もあるので、
+  // scrollable を渡されたら責めない（netmahg の指摘: 正しい一列手牌に 522:1 と警告した）
+  if (!opts.scrollable && shapes.length > 3 && (ar > 6 || ar < 1 / 6)) problems.push({ code: 'H106', id: '(全体)', message: `縦横比が ${ar.toFixed(1)}:1 で極端 — 画面に収めると読めなくなる。段組みにするか、意図した一列なら scrollable:true を渡す` });
 
   // H107 浅い角度の交差。Purchase らの実験では、交差の「数」より
   // 「角度」が読みやすさを左右する。直角に近い交差は目で追えるが、浅い交差は線が分岐して見える。
@@ -393,10 +403,22 @@ export function measure(shapes, edges = [], opts = {}) {
   const mean = lens.length ? lens.reduce((x, y) => x + y, 0) / lens.length : 0;
   const cv = mean ? Math.sqrt(lens.reduce((x, l) => x + sq(l - mean), 0) / lens.length) / mean : 0;
 
+  // H110 領域からのはみ出し。押し出して重なりを消す解を成功扱いしないための歯止め
+  let outside = 0;
+  if (opts.bounds) {
+    const b = opts.bounds;
+    for (const s of shapes) {
+      const hw = s.r != null ? s.r : (s.w ?? 0) / 2, hh = s.r != null ? s.r : (s.h ?? 0) / 2;
+      const dx = Math.max(0, Math.abs(s.x - b.x) + hw - b.w / 2);
+      const dy = Math.max(0, Math.abs(s.y - b.y) + hh - b.h / 2);
+      if (dx > 0.5 || dy > 0.5) { outside++; if (problems.length < 500) problems.push({ code: 'H110', id: s.id, message: `${s.id} が領域から ${Math.max(dx, dy).toFixed(1)}px はみ出している（領域 ${b.w}x${b.h}）— 押し出して重なりを消すのは解決ではない。数を減らすか折り返す` }); }
+    }
+  }
+
   return {
     problems,
     metrics: {
-      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable,
+      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable, outside,
       crossings, crossingRatio: crossings / maxCross, minCrossAngle: segs.length ? minAngle : null, shallowCrossings: shallow,
       pierces, labelHits, aspect: ar, visibleEdgeWeightRatio: visibleRatio,
       edgeLengthCV: cv,
@@ -429,4 +451,58 @@ function segCircleHit(a, b, c, r) {
   let t = ((c.x - a.x) * dx + (c.y - a.y) * dy) / len2;
   t = Math.max(0, Math.min(1, t));
   return Math.hypot(a.x + t * dx - c.x, a.y + t * dy - c.y) < r - 1;
+}
+
+/** id から決まる角度（0〜2π）。完全同位置の分離方向を、乱数を使わず決定論的に決めるため */
+function hashAngle(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) / 4294967296) * Math.PI * 2;
+}
+/** 領域 { x, y, w, h }（x,y は中心）の内側へ引き戻す */
+function clampToBounds(it, b) {
+  const hw = it.r != null ? it.r : (it.w ?? 0) / 2;
+  const hh = it.r != null ? it.r : (it.h ?? 0) / 2;
+  const x0 = b.x - b.w / 2 + hw, x1 = b.x + b.w / 2 - hw;
+  const y0 = b.y - b.h / 2 + hh, y1 = b.y + b.h / 2 - hh;
+  if (x0 <= x1) it.x = Math.min(x1, Math.max(x0, it.x));
+  if (y0 <= y1) it.y = Math.min(y1, Math.max(y0, it.y));
+}
+
+/**
+ * 順序を保った並べ方（row / column / grid）。
+ * 手牌・河・ツールバーのように「順番が意味を持つ」ものは、押し離しでは並べられない。
+ * 領域に入りきらないときは overflow に「はみ出した量」を返す（**勝手に縮めない**）。
+ *   items: [{ id, w, h, gapAfter? }]
+ */
+export function grid(items, opts = {}) {
+  const { x = 0, y = 0, cols = 0, gap = 4, rowGap = null, align = 'start', bounds = null } = opts;
+  const rg = rowGap ?? gap;
+  const out = new Map();
+  const rows = [];
+  let row = [], rowW = 0;
+  for (const it of items) {
+    const w = it.w ?? (it.r ?? 8) * 2;
+    const wouldW = rowW + (row.length ? gap : 0) + w;
+    const overCols = cols > 0 && row.length >= cols;
+    const overW = bounds && !cols && wouldW > bounds.w;
+    if (row.length && (overCols || overW)) { rows.push({ row, rowW }); row = []; rowW = 0; }
+    row.push(it); rowW += (row.length > 1 ? gap : 0) + w + (it.gapAfter ?? 0);
+  }
+  if (row.length) rows.push({ row, rowW });
+  let cy = y;
+  let maxW = 0;
+  for (const { row: r, rowW: rw } of rows) {
+    maxW = Math.max(maxW, rw);
+    const h = Math.max(...r.map((it) => it.h ?? (it.r ?? 8) * 2));
+    let cx = align === 'center' ? x - rw / 2 : x;
+    for (const it of r) {
+      const w = it.w ?? (it.r ?? 8) * 2, ih = it.h ?? (it.r ?? 8) * 2;
+      out.set(it.id, { id: it.id, x: cx + w / 2, y: cy + h / 2, w, h: ih, node: it });
+      cx += w + gap + (it.gapAfter ?? 0);
+    }
+    cy += h + rg;
+  }
+  const overflow = bounds ? Math.max(0, maxW - bounds.w) : 0;
+  return { items: out, rows: rows.length, width: maxW, height: cy - y - rg, overflow };
 }

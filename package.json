@@ -1,16 +1,19 @@
 {
   "name": "haichi-engine",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A tiny pure-geometry layout engine for 2D and 3D — packing, hierarchy, treemap, city blocks, relaxation — plus a measurable quality report (overlap, label fit, legible font, crossings, occlusion, walkability). Decides WHERE things go, never draws them. Feeds zumen / game-engine-suite. Dependency-free, deterministic, headless-testable.",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
-    "./3d": "./index3d.js"
+    "./3d": "./index3d.js",
+    "./game-board": "./integration/game-board.mjs",
+    "./zumen": "./integration/zumen-layout.mjs"
   },
   "files": [
     "index.js",
-    "index3d.js"
+    "index3d.js",
+    "integration"
   ],
   "scripts": {
     "test": "node test.mjs && node test3d.mjs && node integration/zumen-layout.test.mjs && node integration/game-board.test.mjs"
