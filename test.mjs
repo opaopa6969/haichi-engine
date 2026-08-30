@@ -157,4 +157,80 @@ ok('totalEdgeWeight を渡さなければ H109 は出ない', () => {
   assert.ok(!r.problems.some((p) => p.code === 'H109'));
 });
 
+
+// --- tetsugo の実地検証で出た欠陥を固定する（再発防止）
+
+ok('小さい図形のラベルは外に出す（内に「…」を詰めない）', () => {
+  // 半径 12 の円に長い名前。切り詰めれば「…」しか入らない
+  const m = placeLabels([{ id: 'a', x: 0, y: 0, r: 12, label: '宗谷岬', font: 13 }], { minFont: 9 });
+  const p = m.get('a');
+  assert.ok(!p.hidden, '置けなかった');
+  assert.equal(p.at, 'outside', `内側に詰め込んだ（at=${p.at}, text="${p.text}"）`);
+  assert.equal(p.text, '宗谷岬', '文字が切り詰められた');
+});
+
+ok('入るものは内に置く', () => {
+  const m = placeLabels([{ id: 'a', x: 0, y: 0, r: 60, label: 'ab', font: 12 }], { minFont: 9 });
+  assert.equal(m.get('a').at, 'inside');
+});
+
+ok('多数の小さい図形でも外周に散らして重ねない', () => {
+  const shapes = Array.from({ length: 30 }, (_, i) => ({ id: `s${i}`, x: (i % 6) * 90, y: Math.floor(i / 6) * 90, r: 10, label: `駅名${i}`, font: 12 }));
+  const m = placeLabels(shapes, { minFont: 9 });
+  const boxes = [...m.values()].filter((v) => !v.hidden);
+  assert.ok(boxes.length >= 25, `${boxes.length}/30 しか置けていない`);
+  assert.ok(boxes.every((b) => b.text && b.text !== '…'), '「…」だけのラベルが出た');
+  for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++)
+    assert.ok(rectOverlap(boxes[i], boxes[j], 0) <= 0.5, 'ラベルが重なった');
+});
+
+ok('「…」だけのラベルは measure が不合格にする（H102）', () => {
+  const r = measure([{ id: 'a', x: 0, y: 0, r: 10, label: '宗谷岬', font: 13 }]);
+  assert.ok(r.problems.some((p) => p.code === 'H102'), '情報ゼロのラベルを合格にした');
+});
+
+ok('prefer:outside は内に入るものも外に出す', () => {
+  const m = placeLabels([{ id: 'a', x: 0, y: 0, r: 60, label: 'ab', font: 12 }], { prefer: 'outside' });
+  assert.equal(m.get('a').at, 'outside');
+});
+
+ok('priority が高いものから先に置き場所を取る', () => {
+  const shapes = [
+    { id: 'low', x: 0, y: 0, r: 40, label: 'ひくい', font: 12, priority: 0 },
+    { id: 'high', x: 0, y: 0, r: 5, label: 'たかい', font: 12, priority: 10 },
+  ];
+  const m = placeLabels(shapes, { minFont: 9 });
+  assert.ok(!m.get('high').hidden, '優先度が高い方が置けていない');
+});
+
+ok('外に置いたラベルを measure が見る（labelBox）', () => {
+  // 図形どうしは離れているが、外に出したラベルは重なっている
+  const shapes = [
+    { id: 'a', x: 0, y: 0, r: 5, label: '積丹岬', font: 12, labelBox: { x: 0, y: -20, w: 60, h: 14 } },
+    { id: 'b', x: 40, y: 0, r: 5, label: '神威岬', font: 12, labelBox: { x: 30, y: -20, w: 60, h: 14 } },
+  ];
+  const r = measure(shapes, [], { gap: 0 });
+  assert.ok(r.problems.some((p) => p.code === 'H101' && p.message.includes('ラベルが')), 'ラベル同士の重なりを見ていない');
+});
+
+ok('labelBox を渡したら H102（はみ出し）は出さない', () => {
+  const r = measure([{ id: 'a', x: 0, y: 0, r: 5, label: 'とても長い駅名', font: 12, labelBox: { x: 0, y: -20, w: 120, h: 14 } }]);
+  assert.ok(!r.problems.some((p) => p.code === 'H102'), '外置きなのに、はみ出すと言った');
+});
+
+ok('relax は axis で動く向きを縛れる', () => {
+  const m = relax([{ id: 'a', x: 0, y: 0, r: 20 }, { id: 'b', x: 5, y: 5, r: 20 }], { axis: 'x', iterations: 200 });
+  for (const v of m.values()) assert.ok(Math.abs(v.y - (v.id === 'a' ? 0 : 5)) < 1e-9, 'y が動いた');
+});
+
+ok('relax は maxMove で元位置からの距離を縛れる', () => {
+  const m = relax([{ id: 'a', x: 0, y: 0, r: 40 }, { id: 'b', x: 5, y: 0, r: 40 }], { maxMove: 3, iterations: 400 });
+  assert.ok(Math.hypot(m.get('a').x - 0, m.get('a').y - 0) <= 3.001, '3px 以上動いた');
+});
+
+ok('relax は grid で格子に載せ直す', () => {
+  const m = relax([{ id: 'a', x: 0, y: 0, r: 20 }, { id: 'b', x: 7, y: 3, r: 20 }], { grid: 40, iterations: 200 });
+  for (const v of m.values()) { assert.equal(Math.abs(v.x % 40), 0); assert.equal(Math.abs(v.y % 40), 0); }
+});
+
 console.error(`test: ${n} pass`);

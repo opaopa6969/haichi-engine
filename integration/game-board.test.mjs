@@ -48,4 +48,45 @@ ok('関係が強いほど近い', () => {
   assert.ok(d('a', 'b') < d('a', 'c'), `強い関係 ${d('a','b').toFixed(0)} が弱い関係 ${d('a','c').toFixed(0)} より遠い`);
 });
 
+
+// --- tetsugo の実地検証で「使えない」と言われた点を固定する
+
+ok('grid + orthogonal は整数格子・斜め禁止を守る', () => {
+  const G = 40;
+  const path = [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 240 }];
+  const cells = Array.from({ length: 24 }, (_, i) => ({ id: `c${i}` }));
+  const { path: pts } = alongPath(cells, path, { grid: G, orthogonal: true });
+  for (const p of pts) { assert.equal(Math.abs(p.x % G), 0, `x=${p.x} が格子に載っていない`); assert.equal(Math.abs(p.y % G), 0, `y=${p.y} が格子に載っていない`); }
+  for (let i = 1; i < pts.length; i++) {
+    const dx = Math.abs(pts[i].x - pts[i - 1].x) / G, dy = Math.abs(pts[i].y - pts[i - 1].y) / G;
+    assert.equal(dx + dy, 1, `${i}: |dx|+|dy| が ${dx + dy}（斜めか飛び）`);
+  }
+});
+
+ok('grid + orthogonal は同じマスを二度使わない', () => {
+  const path = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }, { x: 0, y: 200 }];
+  const cells = Array.from({ length: 20 }, (_, i) => ({ id: `c${i}` }));
+  const { path: pts } = alongPath(cells, path, { grid: 40, orthogonal: true });
+  const keys = pts.map((p) => `${p.x},${p.y}`);
+  assert.equal(new Set(keys).size, keys.length, '同じ座標が二度出た');
+});
+
+ok('区間ごとにマス数を指定できる（駅間の距離がゲームそのもの）', () => {
+  const segs = [
+    { from: { x: 0, y: 0 }, to: { x: 120, y: 0 }, cells: 3 },
+    { from: { x: 120, y: 0 }, to: { x: 120, y: 200 }, cells: 5 },
+  ];
+  const cells = Array.from({ length: 9 }, (_, i) => ({ id: `c${i}` }));
+  const { path: pts } = alongPath(cells, segs, {});
+  assert.equal(pts.length, 3 + 5 + 1, `マス数が ${pts.length}（期待 9: 3 + 5 + 終点）`);
+  assert.deepEqual(pts[0], { x: 0, y: 0 });
+  assert.deepEqual(pts.at(-1), { x: 120, y: 200 });
+});
+
+ok('grid のときは押し離しをしない（格子を壊さない）', () => {
+  const cells = Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, r: 60 }));  // 半径が大きく重なる
+  const { cells: placed } = alongPath(cells, [{ x: 0, y: 0 }, { x: 200, y: 0 }], { grid: 40, orthogonal: true });
+  for (const v of placed.values()) { assert.equal(Math.abs(v.x % 40), 0); assert.equal(Math.abs(v.y % 40), 0); }
+});
+
 console.error(`game-board: ${n} pass`);

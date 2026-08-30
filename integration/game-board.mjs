@@ -25,25 +25,77 @@ export function roundTable(players, { radius = 200, seatRadius = 48, startAngle 
 
 /**
  * すごろく等の「路に沿ってマスを並べる」配置。
- * path: [{x,y}...] を等間隔で分割し、マスを置く。マスが重なるなら relax で押し離す。
+ *
+ * tetsugo での実測で分かった、最初の版が使えなかった理由:
+ *   - 盤面が整数格子で、隣接は |dx|+|dy|===1（斜め禁止）という不変条件を持つのに、
+ *     連続空間で等間隔に割っていたため全部壊していた
+ *   - **駅間のマス数がゲームそのもの（サイコロの距離）なのに、
+ *     「A 駅と B 駅の間に n マス」を表現する手段が無かった**（全体を index で等分するだけ）
+ * そこで 2 つ足した。
+ *   grid       … 整数格子に載せる（0 なら連続空間のまま）
+ *   orthogonal … 直交のみで繋ぐ（斜めを作らない）。grid と併用する
+ * さらに path を「区間の列」で渡せるようにした:
+ *   path: [{x,y}...]                                そのまま等分（従来どおり）
+ *   path: [{ from:{x,y}, to:{x,y}, cells: n }, ...]  区間ごとにマス数を指定
  */
-export function alongPath(cells, path, { cellRadius = 22, gap = 6, loop = false } = {}) {
-  if (!path.length) return { cells: new Map(), report: measure([], []) };
-  // 折れ線の全長を測り、等間隔の位置を取る
-  const segs = [];
-  let total = 0;
-  for (let i = 1; i < path.length; i++) { const d = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y); segs.push({ a: path[i - 1], b: path[i], d }); total += d; }
-  if (loop && path.length > 2) { const d = Math.hypot(path[0].x - path.at(-1).x, path[0].y - path.at(-1).y); segs.push({ a: path.at(-1), b: path[0], d }); total += d; }
-  const at = (t) => {
-    let want = t * total;
-    for (const s of segs) { if (want <= s.d || s === segs.at(-1)) { const k = s.d ? want / s.d : 0; return { x: s.a.x + (s.b.x - s.a.x) * k, y: s.a.y + (s.b.y - s.a.y) * k }; } want -= s.d; }
-    return path.at(-1);
-  };
-  const n = cells.length || 1;
-  const raw = cells.map((c, i) => ({ id: c.id ?? String(i), ...at(loop ? i / n : n === 1 ? 0 : i / (n - 1)), r: c.r ?? cellRadius, label: c.name ?? c.id, font: c.font ?? 11 }));
-  const placed = relax(raw, { gap, iterations: 120 });
+export function alongPath(cells, path, opts = {}) {
+  const { cellRadius = 22, gap = 6, loop = false, grid = 0, orthogonal = false } = opts;
+  if (!path?.length) return { cells: new Map(), report: measure([], []) };
+
+  const isSegments = path[0] && path[0].from && path[0].to;
+  let pts = [];
+
+  if (isSegments) {
+    // 区間ごとに指定されたマス数だけ点を打つ。マス数が意味を持つ盤面はこちら
+    for (const seg of path) {
+      const n = Math.max(1, seg.cells ?? 1);
+      for (let i = 0; i < n; i++) {
+        const t = n === 1 ? 0 : i / n;   // 終点は次の区間の始点なので含めない
+        pts.push({ x: seg.from.x + (seg.to.x - seg.from.x) * t, y: seg.from.y + (seg.to.y - seg.from.y) * t });
+      }
+    }
+    const last = path.at(-1);
+    if (!loop) pts.push({ x: last.to.x, y: last.to.y });
+  } else {
+    // 折れ線の全長を測り、等間隔の位置を取る（従来の動き）
+    const segs = [];
+    let total = 0;
+    for (let i = 1; i < path.length; i++) { const d = Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y); segs.push({ a: path[i - 1], b: path[i], d }); total += d; }
+    if (loop && path.length > 2) { const d = Math.hypot(path[0].x - path.at(-1).x, path[0].y - path.at(-1).y); segs.push({ a: path.at(-1), b: path[0], d }); total += d; }
+    const at = (t) => {
+      let want = t * total;
+      for (const sg of segs) { if (want <= sg.d || sg === segs.at(-1)) { const k = sg.d ? want / sg.d : 0; return { x: sg.a.x + (sg.b.x - sg.a.x) * k, y: sg.a.y + (sg.b.y - sg.a.y) * k }; } want -= sg.d; }
+      return path.at(-1);
+    };
+    const n = cells.length || 1;
+    pts = cells.map((_, i) => at(loop ? i / n : n === 1 ? 0 : i / (n - 1)));
+  }
+
+  // 格子に載せる。直交のみなら、斜めに飛んだところへ中継のマスを挟んで階段状にする
+  if (grid > 0) {
+    pts = pts.map((p) => ({ x: Math.round(p.x / grid) * grid, y: Math.round(p.y / grid) * grid }));
+    if (orthogonal) {
+      const out = [pts[0]];
+      for (let i = 1; i < pts.length; i++) {
+        const a = out.at(-1), b = pts[i];
+        let cx = a.x, cy = a.y;
+        while (cx !== b.x) { cx += Math.sign(b.x - cx) * grid; out.push({ x: cx, y: cy }); }
+        while (cy !== b.y) { cy += Math.sign(b.y - cy) * grid; out.push({ x: cx, y: cy }); }
+      }
+      // 同じ座標に重なったものは畳む（階段の折返しで生じる）
+      const seen = new Set();
+      pts = out.filter((p) => { const k = `${p.x},${p.y}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    }
+  }
+
+  const raw = cells.map((c, i) => {
+    const p = pts[Math.min(i, pts.length - 1)] ?? { x: 0, y: 0 };
+    return { id: c.id ?? String(i), x: p.x, y: p.y, r: c.r ?? cellRadius, label: c.name ?? c.id, font: c.font ?? 11 };
+  });
+  // 格子に載せた配置は動かすと壊れるので、押し離しは連続空間のときだけ
+  const placed = grid > 0 ? new Map(raw.map((r) => [r.id, r])) : relax(raw, { gap, iterations: 120 });
   const shapes = [...placed.values()];
-  return { cells: placed, labels: placeLabels(shapes, { minFont: 9 }), report: measure(shapes, [], { gap }) };
+  return { cells: placed, path: pts, labels: placeLabels(shapes, { minFont: 9, prefer: 'outside' }), report: measure(shapes, [], { gap }) };
 }
 
 /**

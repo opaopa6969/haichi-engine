@@ -191,8 +191,9 @@ const worst = (areas, sum, side) => {
  * items: [{ id, x, y, r }] か [{ id, x, y, w, h }]
  * 位置を動かしたくないものは pinned に id を入れる。
  */
-export function relax(items, { gap = 2, iterations = 60, strength = 0.5, pinned = new Set() } = {}) {
-  const a = items.map((it) => ({ ...it }));
+export function relax(items, opts = {}) {
+  const { gap = 2, iterations = 60, strength = 0.5, pinned = new Set(), axis = 'xy', maxMove = Infinity, grid = 0 } = opts;
+  const a = items.map((it) => ({ ...it, _ox: it.x, _oy: it.y }));
   for (let k = 0; k < iterations; k++) {
     let moved = 0;
     for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) {
@@ -204,11 +205,21 @@ export function relax(items, { gap = 2, iterations = 60, strength = 0.5, pinned 
       const d = Math.hypot(dx, dy) || 1e-6;
       dx /= d; dy /= d;
       const push = (ov * strength) / 2;
-      if (!pinned.has(p.id)) { p.x -= dx * push; p.y -= dy * push; moved += push; }
-      if (!pinned.has(q.id)) { q.x += dx * push; q.y += dy * push; moved += push; }
+      // axis で動かせる向きを制限する（3D 側に moveY があるのに 2D に軸ロックが
+      // 無いのは非対称だという指摘）。maxMove は元位置からの距離を縛る
+      const kx = axis === 'y' ? 0 : 1, ky = axis === 'x' ? 0 : 1;
+      if (!pinned.has(p.id)) { p.x -= dx * push * kx; p.y -= dy * push * ky; moved += push; }
+      if (!pinned.has(q.id)) { q.x += dx * push * kx; q.y += dy * push * ky; moved += push; }
+      if (maxMove < Infinity) for (const it of [p, q]) {
+        const d2 = Math.hypot(it.x - it._ox, it.y - it._oy);
+        if (d2 > maxMove) { const k = maxMove / d2; it.x = it._ox + (it.x - it._ox) * k; it.y = it._oy + (it.y - it._oy) * k; }
+      }
     }
     if (moved < 0.01) break;
   }
+  // 格子に載せたまま動かしたい場合（すごろくの盤面など）は最後にスナップする
+  if (grid > 0) for (const it of a) { it.x = Math.round(it.x / grid) * grid; it.y = Math.round(it.y / grid) * grid; }
+  for (const it of a) { delete it._ox; delete it._oy; }
   return new Map(a.map((it) => [it.id, it]));
 }
 
@@ -217,26 +228,37 @@ export function relax(items, { gap = 2, iterations = 60, strength = 0.5, pinned 
  * どこにも置けなければ hidden: true を返す（**出さない判断も配置の一部**）。
  * shapes: [{ id, x, y, r? , w?, h?, label, font }]
  */
-export function placeLabels(shapes, { minFont = 9, gap = 2, cw = 0.55 } = {}) {
+export function placeLabels(shapes, opts = {}) {
+  const { minFont = 9, gap = 2, cw = 0.55, prefer = 'auto', allowInside = true, dirOrder = null } = opts;
   const out = new Map();
   const taken = [];
-  const dirs = [[0, 0], [0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]];
-  for (const s of [...shapes].sort((a, b) => (b.r ?? Math.max(b.w, b.h) / 2) - (a.r ?? Math.max(a.w, a.h) / 2))) {
+  // 方向の優先順。ゲームによっては「下→上→右→左」のような決まりがあるので差し替えられる
+  const DIRS = dirOrder ?? [[0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+  // 大きいものから置く。priority があればそちらを優先する（重要なラベルを先に確保する）
+  const order = [...shapes].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (b.r ?? Math.max(b.w, b.h) / 2) - (a.r ?? Math.max(a.w, a.h) / 2));
+  for (const s of order) {
     const font = s.font ?? 12;
     if (font < minFont) { out.set(s.id, { hidden: true, why: `font ${font.toFixed(1)}px < ${minFont}px` }); continue; }
     const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
-    const text = fitText(s.label, inner, font * cw);
-    const tw = textWidth(text, font * cw), th = font * 1.2;
+    // **内に入るかは「切り詰める前の全長」で決める。**
+    // 切り詰めた文字で判定すると、fitText が返した「…」が常に内に収まってしまい、
+    // 外周 8 方向を一度も試さなくなる（tetsugo の 616 駅が全部「…」になった）
+    const fullW = textWidth(s.label, font * cw);
+    const fitsInside = allowInside && prefer !== 'outside' && fullW <= inner;
+    const th = font * 1.2;
+    const ext = s.r != null ? s.r : Math.max(s.w, s.h) / 2;
+    const cands = [];
+    if (fitsInside) cands.push({ dx: 0, dy: 0, text: s.label, tw: fullW, at: 'inside' });
+    for (const [dx, dy] of DIRS) cands.push({ dx, dy, text: s.label, tw: fullW, at: 'outside' });
     let placed = null;
-    for (const [dx, dy] of dirs) {
-      const ext = s.r != null ? s.r : Math.max(s.w, s.h) / 2;
-      const x = s.x + dx * (ext + tw / 2 + gap), y = s.y + dy * (ext + th / 2 + gap);
-      const box = { x, y, w: tw, h: th };
+    for (const c of cands) {
+      const x = s.x + c.dx * (ext + c.tw / 2 + gap), y = s.y + c.dy * (ext + th / 2 + gap);
+      const box = { x, y, w: c.tw, h: th };
       if (taken.some((t) => rectOverlap(box, t, gap) > 0)) continue;
-      placed = { ...box, text, font, at: dx === 0 && dy === 0 ? 'inside' : 'outside' };
+      placed = { ...box, text: c.text, font, at: c.at };
       break;
     }
-    if (!placed) { out.set(s.id, { hidden: true, why: '周囲 8 方向すべてが埋まっている' }); continue; }
+    if (!placed) { out.set(s.id, { hidden: true, why: `${cands.length} 方向すべてが埋まっている` }); continue; }
     taken.push(placed);
     out.set(s.id, placed);
   }
@@ -269,19 +291,26 @@ export function measure(shapes, edges = [], opts = {}) {
   }
 
   // H102 ラベルがはみ出す / H103 文字が小さすぎる
+  // **labelBox を渡されたら、そのラベルは図形の外に置かれている**とみなす。
+  // 外置きは「はみ出す」概念が無いので H102 は見ず、H101（ラベル同士の重なり）と
+  // H108（辺が横切る）の対象にする。これが無いと、外にラベルを置く現実の配置を
+  // 影の図形に変換しないと測れなかった（tetsugo の指摘）。
   let unreadable = 0, overflow = 0;
   for (const s of shapes) {
     if (!s.label) continue;
     const font = s.font ?? 12;
     if (font < minFont) { unreadable++; problems.push({ code: 'H103', id: s.id, message: `${s.id} のラベルが ${font.toFixed(1)}px（読める最小 ${minFont}px）— 図形を大きくするか、この深さでは出さない` }); continue; }
+    if (s.labelBox) continue;   // 外置きは、はみ出しようがない
     const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
     const cut = fitText(s.label, inner, font * cw);
     const full = textWidth(s.label, font * cw);
-    if (!cut) {
+    // 「…」だけ残っても情報はゼロ。合格にすると「駅名が全部…になった図」を
+    // 問題なしと報告することになる（tetsugo で実際に起きた）
+    if (!cut || cut === '…') {
       // 切り詰めても「…」すら入らない＝この大きさでは名前を出せない。
       // 「はみ出す」ではなく「出せない」なので別の直し方になる
       overflow++;
-      problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」は使える幅 ${inner.toFixed(0)}px に 1 文字も入らない（必要 ${full.toFixed(0)}px）— 図形を広げるか、この深さでは名前を出さない` });
+      problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」は使える幅 ${inner.toFixed(0)}px に 1 文字も入らない（必要 ${full.toFixed(0)}px）— 図形を広げるか、placeLabels() で外に出すか、この深さでは名前を出さない` });
       continue;
     }
     const tw = textWidth(cut, font * cw);
@@ -331,10 +360,19 @@ export function measure(shapes, edges = [], opts = {}) {
   let labelHits = 0;
   const labelBoxes = shapes.filter((s) => s.label && (s.font ?? 12) >= minFont).map((s) => {
     const font = s.font ?? 12;
+    if (s.labelBox) return { id: s.id, x: s.labelBox.x, y: s.labelBox.y, w: s.labelBox.w, h: s.labelBox.h, outside: true };
     const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
     const tw = textWidth(fitText(s.label, inner, font * cw), font * cw);
     return { id: s.id, x: s.x, y: s.y, w: tw, h: font * 1.2 };
   });
+  // 外に置いたラベル同士の重なり（図形は離れていてもラベルはぶつかる）
+  const outs = labelBoxes.filter((b) => b.outside);
+  let labelOverlaps = 0;
+  for (let i = 0; i < outs.length; i++) for (let j = i + 1; j < outs.length; j++) {
+    const ov = rectOverlap(outs[i], outs[j], gap);
+    if (ov > 0.5) { labelOverlaps++; if (problems.length < 500) problems.push({ code: 'H101', id: outs[i].id, message: `${outs[i].id} と ${outs[j].id} のラベルが ${ov.toFixed(1)}px 重なっている（必要な隙間 ${gap}px）— placeLabels() で逃がす` }); }
+  }
+  overlaps += labelOverlaps;
   for (const { a, b } of segs) for (const L of labelBoxes) {
     if (L.id === a.id || L.id === b.id) continue;
     if (segRectHit(a, b, L)) { labelHits++; break; }
