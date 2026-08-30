@@ -102,8 +102,13 @@ export function alongPath(cells, path, opts = {}) {
     }
   }
 
+  // orthogonal で階段状に中継マスを挟むと、点の数がマスの数より増える。
+  // 先頭から順に取ると終点に届かない（2 マスを (0,0)→(64,64) に置くと (32,0) で終わっていた）。
+  // マス数に合わせて等間隔に間引き、**終点は必ず最後のマスに割り当てる**
   const raw = cells.map((c, i) => {
-    const p = pts[Math.min(i, pts.length - 1)] ?? { x: 0, y: 0 };
+    const n = cells.length;
+    const idx = n <= 1 ? 0 : Math.round((i / (n - 1)) * (pts.length - 1));
+    const p = pts[Math.min(idx, pts.length - 1)] ?? { x: 0, y: 0 };
     return { id: c.id ?? String(i), x: p.x, y: p.y, r: c.r ?? cellRadius, label: c.name ?? c.id, font: c.font ?? 11 };
   });
   // 格子に載せた配置は動かすと壊れるので、押し離しは連続空間のときだけ

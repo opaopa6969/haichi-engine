@@ -27,6 +27,21 @@ export const circleOverlap = (a, b, gap = 0) => a.r + b.r + gap - Math.hypot(a.x
 export const rectOverlap = (a, b, gap = 0) =>
   Math.min((a.w + b.w) / 2 + gap - Math.abs(a.x - b.x), (a.h + b.h) / 2 + gap - Math.abs(a.y - b.y));
 
+/**
+ * 形が違うものどうしの重なり量。円は「幅も高さも 2r の矩形」ではないので、
+ * 混在すると矩形判定に落ちて誤る（同心の r=10 円と 20x20 矩形を「重なり 0」と答えていた）。
+ * 円×矩形は、矩形上の最近点と中心の距離で測る。
+ */
+export function overlapOf(a, b, gap = 0) {
+  const aC = a.r != null, bC = b.r != null;
+  if (aC && bC) return circleOverlap(a, b, gap);
+  if (!aC && !bC) return rectOverlap(a, b, gap);
+  const c = aC ? a : b, q = aC ? b : a;
+  const nx = Math.max(q.x - q.w / 2, Math.min(c.x, q.x + q.w / 2));
+  const ny = Math.max(q.y - q.h / 2, Math.min(c.y, q.y + q.h / 2));
+  return c.r + gap - Math.hypot(c.x - nx, c.y - ny);
+}
+
 /** 全角を 1.75 文字ぶんで数える文字幅（等幅でない前提の粗い見積り） */
 export function textWidth(str, cw) {
   let acc = 0;
@@ -198,8 +213,7 @@ export function relax(items, opts = {}) {
     let moved = 0;
     for (let i = 0; i < a.length; i++) for (let j = i + 1; j < a.length; j++) {
       const p = a[i], q = a[j];
-      const isCircle = p.r != null && q.r != null;
-      const ov = isCircle ? circleOverlap(p, q, gap) : rectOverlap(p, q, gap);
+      const ov = overlapOf(p, q, gap);
       if (ov <= 0) continue;
       let dx = q.x - p.x, dy = q.y - p.y;
       let d = Math.hypot(dx, dy);
@@ -294,7 +308,7 @@ export function measure(shapes, edges = [], opts = {}) {
   for (const s of shapes) { const k = s.parent ?? '\u0000'; (groups.get(k) ?? groups.set(k, []).get(k)).push(s); }
   for (const [, g] of groups) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
     const a = g[i], b = g[j];
-    const ov = a.r != null && b.r != null ? circleOverlap(a, b, gap) : rectOverlap(a, b, gap);
+    const ov = overlapOf(a, b, gap);
     if (ov > 0.5) { overlaps++; if (problems.length < 500) problems.push({ code: 'H101', id: a.id, message: `${a.id} と ${b.id} が ${ov.toFixed(1)}px 重なっている（必要な隙間 ${gap}px）— どちらかを小さくするか relax() で押し離す` }); }
   }
 

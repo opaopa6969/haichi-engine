@@ -16,6 +16,26 @@ const sq = (x) => x * x;
 export const dist3 = (a, b) => Math.hypot(a.x - b.x, (a.y ?? 0) - (b.y ?? 0), a.z - b.z);
 
 /**
+ * 3D で形が違うものどうしの重なり量。2D の overlapOf と同じ理由で、
+ * 球と直方体が混在すると直方体判定に落ちて誤る。
+ * 球×直方体は、直方体上の最近点と中心の距離で測る。
+ */
+export function overlapOf3(a, b, gap = 0) {
+  const aS = a.r != null, bS = b.r != null;
+  if (aS && bS) return a.r + b.r + gap - dist3(a, b);
+  if (!aS && !bS) return Math.min(
+    (a.w + b.w) / 2 + gap - Math.abs(a.x - b.x),
+    (a.d + b.d) / 2 + gap - Math.abs(a.z - b.z),
+  );
+  const c = aS ? a : b, q = aS ? b : a;
+  const nx = Math.max(q.x - q.w / 2, Math.min(c.x, q.x + q.w / 2));
+  const nz = Math.max(q.z - q.d / 2, Math.min(c.z, q.z + q.d / 2));
+  const qy = q.y ?? 0, qh = q.h ?? 0;
+  const ny = Math.max(qy, Math.min(c.y ?? 0, qy + qh));
+  return c.r + gap - Math.hypot(c.x - nx, (c.y ?? 0) - ny, c.z - nz);
+}
+
+/**
  * 街区に建物を建てる（CodeCity 方式）。
  * 平面（XZ）は treemap で区画に割り、高さ（Y）は別の量で決める。
  * items: [{ id, value（床面積）, height（高さの量）, children? }]
@@ -37,11 +57,10 @@ export function blocks(items, { w = 1000, d = 1000, padding = 6, heightScale = 1
 export function relax3(items, { gap = 2, iterations = 60, strength = 0.5, pinned = new Set(), moveY = false } = {}) {
   const a = items.map((it) => ({ ...it }));
   const overlapOf = (p, q) => {
-    if (p.r != null && q.r != null) return p.r + q.r + gap - dist3(p, q);
-    const ox = (p.w + q.w) / 2 + gap - Math.abs(p.x - q.x);
-    const oz = (p.d + q.d) / 2 + gap - Math.abs(p.z - q.z);
-    const oy = moveY ? (p.h + q.h) / 2 + gap - Math.abs((p.y ?? 0) - (q.y ?? 0)) : Infinity;
-    return Math.min(ox, oz, oy);
+    if (!moveY || p.r != null || q.r != null) return overlapOf3(p, q, gap);
+    // y も動かす場合だけ、高さ方向の離れも「離れている」とみなす
+    const oy = (p.h + q.h) / 2 + gap - Math.abs((p.y ?? 0) - (q.y ?? 0));
+    return Math.min(overlapOf3(p, q, gap), oy);
   };
   for (let k = 0; k < iterations; k++) {
     let moved = 0;
@@ -128,9 +147,7 @@ export function measure3(objects, edges = [], camera = null, opts = {}) {
   for (const o of objects) { const k = o.parent ?? '__root__'; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(o); }
   for (const g of groups.values()) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) {
     const p = g[i], q = g[j];
-    const ov = p.r != null && q.r != null
-      ? p.r + q.r + gap - dist3(p, q)
-      : Math.min((p.w + q.w) / 2 + gap - Math.abs(p.x - q.x), (p.d + q.d) / 2 + gap - Math.abs(p.z - q.z));
+    const ov = overlapOf3(p, q, gap);
     if (ov > 0.5) { overlaps++; if (problems.length < 300) problems.push({ code: 'V101', id: p.id, message: `${p.id} と ${q.id} が ${ov.toFixed(1)} 重なっている（必要な隙間 ${gap}）— relax3() で押し離す` }); }
   }
 

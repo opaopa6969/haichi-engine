@@ -1,6 +1,6 @@
 // haichi-engine / 3D のテスト。node test3d.mjs で走る。
 import assert from 'node:assert/strict';
-import { blocks, relax3, project, visibleFrom, measure3, lodFor, semanticLod, spatialHash, dist3 } from './index3d.js';
+import { blocks, relax3, project, visibleFrom, measure3, lodFor, semanticLod, spatialHash, dist3, overlapOf3 } from './index3d.js';
 
 let n = 0; const ok = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`NG ${name}: ${e.message}`); process.exitCode = 1; } };
 
@@ -171,6 +171,19 @@ ok('spatialHash は近傍だけを返す', () => {
   assert.ok(near.length < objs.length, '全部返している');
   assert.ok(near.some((o) => o.id === 'o0'), '自分自身が入っていない');
   for (const o of near) assert.ok(dist3({ x: 0, y: 0, z: 0 }, o) < 300, `遠いものが混ざった: ${o.id}`);
+});
+
+
+ok('3D も球と直方体の混在を正しく測る', () => {
+  const sph = { id: 's', x: 0, y: 0, z: 0, r: 10 };
+  const box = { id: 'b', x: 0, y: 0, z: 0, w: 20, d: 20, h: 20 };
+  assert.ok(overlapOf3(sph, box, 0) > 5, `重なりを ${overlapOf3(sph, box, 0).toFixed(1)} と答えた`);
+  const r = measure3([sph, box], [], null);
+  assert.equal(r.metrics.overlaps, 1, '混在すると重なりを見落とす');
+});
+
+ok('3D で離れていれば重ならない', () => {
+  assert.ok(overlapOf3({ id: 's', x: 0, y: 0, z: 0, r: 10 }, { id: 'b', x: 200, y: 0, z: 0, w: 20, d: 20, h: 20 }, 0) < 0);
 });
 
 console.error(`test3d: ${n} pass`);

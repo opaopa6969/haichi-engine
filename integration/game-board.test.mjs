@@ -121,4 +121,19 @@ ok('roundTable は矩形の席域を受ける（外接円の偽陽性を避け�
   assert.ok(rect.seats.get('a').rotation != null, '中心を向く回転が付いていない');
 });
 
+
+ok('orthogonal でも最後のマスが終点に届く', () => {
+  const { cells } = alongPath([{ id: 'a' }, { id: 'b' }], [{ x: 0, y: 0 }, { x: 64, y: 64 }], { grid: 32, orthogonal: true });
+  const last = cells.get('b');
+  assert.equal(last.x, 64, `終点 x=${last.x}`);
+  assert.equal(last.y, 64, `終点 y=${last.y}`);
+});
+
+ok('マス数が中継点より少なくても始点と終点を押さえる', () => {
+  const cells = Array.from({ length: 3 }, (_, i) => ({ id: `c${i}` }));
+  const { cells: m } = alongPath(cells, [{ x: 0, y: 0 }, { x: 200, y: 200 }], { grid: 40, orthogonal: true });
+  assert.equal(m.get('c0').x, 0); assert.equal(m.get('c0').y, 0);
+  assert.equal(m.get('c2').x, 200); assert.equal(m.get('c2').y, 200);
+});
+
 console.error(`game-board: ${n} pass`);

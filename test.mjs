@@ -1,6 +1,6 @@
 // haichi-engine の単体テスト。依存ゼロ、node test.mjs で走る。
 import assert from 'node:assert/strict';
-import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap } from './index.js';
+import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap, overlapOf } from './index.js';
 
 let n = 0; const ok = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`NG ${name}: ${e.message}`); process.exitCode = 1; } };
 
@@ -296,6 +296,33 @@ ok('grid は gapAfter で牌の間隔を空けられる（ツモ牌）', () => {
   const items = [{ id: 'a', w: 30, h: 40, gapAfter: 20 }, { id: 'b', w: 30, h: 40 }];
   const { items: m } = grid(items, { gap: 4 });
   assert.ok(m.get('b').x - m.get('a').x > 30 + 4 + 10, '間隔が空いていない');
+});
+
+
+// --- 形が混在するときの重なり判定（codex が tetsugo 評価のついでに見つけた）
+
+ok('円と矩形の混在を正しく測る', () => {
+  // 同心の r=10 円と 20x20 矩形。矩形判定に落ちると「重なり 0」と答えてしまう
+  const c = { id: 'c', x: 0, y: 0, r: 10 }, q = { id: 'q', x: 0, y: 0, w: 20, h: 20 };
+  assert.ok(overlapOf(c, q, 0) > 5, `重なりを ${overlapOf(c, q, 0).toFixed(1)} と答えた`);
+  const r = measure([c, q], []);
+  assert.equal(r.metrics.overlaps, 1, '混在すると重なりを見落とす');
+});
+
+ok('円と矩形が離れていれば重ならない', () => {
+  assert.ok(overlapOf({ id: 'c', x: 0, y: 0, r: 10 }, { id: 'q', x: 100, y: 0, w: 20, h: 20 }, 0) < 0);
+});
+
+ok('矩形の角に近い円を正しく扱う', () => {
+  // 角から斜めに離れた円。辺までの距離ではなく角までの距離で測らないと誤る
+  const c = { id: 'c', x: 17, y: 17, r: 5 }, q = { id: 'q', x: 0, y: 0, w: 20, h: 20 };
+  const d = Math.hypot(17 - 10, 17 - 10);   // 角 (10,10) からの距離
+  assert.ok(Math.abs(overlapOf(c, q, 0) - (5 - d)) < 1e-9, `角の判定がずれている（${overlapOf(c, q, 0).toFixed(3)}）`);
+});
+
+ok('relax も混在を押し離せる', () => {
+  const m = relax([{ id: 'c', x: 0, y: 0, r: 10 }, { id: 'q', x: 2, y: 0, w: 20, h: 20 }], { iterations: 300, gap: 1 });
+  assert.ok(overlapOf(m.get('c'), m.get('q'), 0) <= 0.5, '混在だと押し離せない');
 });
 
 console.error(`test: ${n} pass`);

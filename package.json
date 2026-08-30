@@ -1,6 +1,6 @@
 {
   "name": "haichi-engine",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "A tiny pure-geometry layout engine for 2D and 3D — packing, hierarchy, treemap, city blocks, relaxation — plus a measurable quality report (overlap, label fit, legible font, crossings, occlusion, walkability). Decides WHERE things go, never draws them. Feeds zumen / game-engine-suite. Dependency-free, deterministic, headless-testable.",
   "type": "module",
   "main": "index.js",
