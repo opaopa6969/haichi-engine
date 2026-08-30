@@ -51,6 +51,22 @@ export function textWidth(str, cw) {
 }
 /** 幅に収まるところまで切り、入らなければ末尾を削って「…」のぶんを空ける */
 /**
+ * 文字を置ける幅（content box の幅）。
+ *
+ * 既定は「外形から 6px 引く」という決め打ちだったが、Web では padding と border が
+ * 効くので合わない（design-catalog の指摘）。`pad` を渡せばそれを使い、
+ * `contentW` を渡せばそれをそのまま使う。
+ *   { w: 200, pad: 16 }            → 200 - 32 = 168
+ *   { w: 200, contentW: 150 }      → 150（DOM の実測値をそのまま渡す）
+ *   { r: 30 }                      → 60 - 6 = 54（従来どおり）
+ */
+export function contentWidth(s, fallbackPad = 3) {
+  if (s.contentW != null) return s.contentW;
+  const pad = s.pad != null ? s.pad : fallbackPad;
+  return s.r != null ? s.r * 2 - pad * 2 : s.w - pad * 2;
+}
+
+/**
  * 書記素（人が「1 文字」と感じる単位）に割る。
  * コードポイントで割ると、家族の絵文字（ZWJ 連結）が 👨 だけになり、
  * 国旗・肌の色・結合文字・異体字セレクタも割れる。Intl.Segmenter があればそれを使い、
@@ -78,6 +94,49 @@ export function fitText(str, width, cw) {
     acc += w(ch); out.push(ch);
   }
   return out.join('');
+}
+
+/**
+ * 折り返して何行になるかを返す。日本語は語で切らず、禁則だけ見る。
+ *
+ * 「入らない」には 2 通りある。**1 行に収める**なら fitText で切る。
+ * **折り返す**なら行数が問題になり、箱の高さを超えれば溢れる。
+ * Web はほぼ後者なので、行数を出せないと高さ方向の破綻が測れない。
+ *
+ *   wrapText('長い文章…', 200, 7.7, { lineHeight: 22, maxLines: 3 })
+ *   → { lines: ['…','…','…'], count: 3, height: 66, truncated: true }
+ */
+const NO_START = '、。，．・：；！？）」』】〉》]}）ぁぃぅぇぉっゃゅょゎァィゥェォッャュョヮー〜';  // 行頭に来てはいけない
+const NO_END = '（「『【〈《[{（';                                                        // 行末に来てはいけない
+export function wrapText(str, width, cw, { lineHeight = null, maxLines = Infinity, font = null } = {}) {
+  const gs = graphemes(str);
+  const w = (g) => (g.codePointAt(0) > 255 ? cw * 1.75 : cw);
+  const lines = [];
+  let cur = [], acc = 0;
+  const flush = () => { lines.push(cur.join('')); cur = []; acc = 0; };
+  for (let i = 0; i < gs.length; i++) {
+    const g = gs[i];
+    if (g === '\n') { flush(); continue; }
+    if (acc + w(g) > width && cur.length) {
+      // 行頭禁止文字は前の行に**ぶら下げる**（幅を少し超えてもよい）。
+      // 送ってしまうと「、」だけの行ができ、禁則を守れない。
+      // ただし 1 行に 1 文字も入らない極端な幅では諦める（無限ループを避ける）
+      if (NO_START.includes(g)) { cur.push(g); acc += w(g); continue; }
+      // 行末禁止文字は次の行へ送る
+      const carry = [];
+      while (cur.length > 1 && NO_END.includes(cur[cur.length - 1])) carry.unshift(cur.pop());
+      flush();
+      cur = carry; acc = carry.reduce((a, c) => a + w(c), 0);
+      if (lines.length >= maxLines) break;
+    }
+    cur.push(g); acc += w(g);
+  }
+  if (cur.length && lines.length < maxLines) flush();
+  const truncated = lines.length >= maxLines && lines.join('').length < str.length;
+  // CSS の line-height: normal は概ね font の 1.15〜1.2 倍。1.6 を既定にすると
+  // 「1 行なのに高さが足りない」と誤検出する（h=40 の見出しに font=28 で 45px 要求した）
+  const lh = lineHeight ?? (font ? font * 1.2 : (cw / 0.55) * 1.2);
+  return { lines, count: lines.length, height: lines.length * lh, lineHeight: lh, truncated };
 }
 
 // ---------------------------------------------------------------- 配置
@@ -352,7 +411,7 @@ export function placeLabels(shapes, opts = {}) {
   for (const s of order) {
     const font = s.font ?? 12;
     if (font < minFont) { out.set(s.id, { hidden: true, why: `font ${font.toFixed(1)}px < ${minFont}px` }); continue; }
-    const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
+    const inner = contentWidth(s);
     // **内に入るかは「切り詰める前の全長」で決める。**
     // 切り詰めた文字で判定すると、fitText が返した「…」が常に内に収まってしまい、
     // 外周 8 方向を一度も試さなくなる（tetsugo の 616 駅が全部「…」になった）
@@ -417,7 +476,7 @@ export function measure(shapes, edges = [], opts = {}) {
     const font = s.font ?? 12;
     if (font < minFont) { unreadable++; problems.push({ code: 'H103', id: s.id, message: `${s.id} のラベルが ${font.toFixed(1)}px（読める最小 ${minFont}px）— 図形を大きくするか、この深さでは出さない` }); continue; }
     if (s.labelBox) continue;   // 外置きは、はみ出しようがない
-    const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
+    const inner = contentWidth(s);
     const cut = fitText(s.label, inner, font * cw);
     const full = textWidth(s.label, font * cw);
     // 「…」だけ残っても情報はゼロ。合格にすると「駅名が全部…になった図」を
@@ -441,6 +500,23 @@ export function measure(shapes, edges = [], opts = {}) {
     }
     const tw = textWidth(cut, font * cw);
     if (tw > inner + 0.5) { overflow++; problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」が ${(tw - inner).toFixed(1)}px はみ出す（文字 ${tw.toFixed(0)}px > 使える幅 ${inner.toFixed(0)}px）— fitText() を通すか図形を広げる` }); }
+  }
+
+  // H112 折り返した結果、箱の高さを超える。
+  // 「1 行に収める」なら幅（H102）、「折り返す」なら高さが問題になる。Web はほぼ後者
+  let clipped = 0;
+  for (const s of shapes) {
+    if (!s.label || !s.wrap) continue;
+    const font = s.font ?? 12;
+    if (font < minFont) continue;
+    const inner = contentWidth(s);
+    const boxH = (s.h ?? 0) - (s.pad != null ? s.pad * 2 : 6);
+    if (inner <= 0 || boxH <= 0) continue;
+    const r2 = wrapText(s.label, inner, font * cw, { font, lineHeight: s.lineHeight });
+    if (r2.height > boxH + 0.5) {
+      clipped++;
+      if (problems.length < 500) problems.push({ code: 'H112', id: s.id, message: `${s.id} の文章が ${r2.count} 行になり ${r2.height.toFixed(0)}px 必要（箱の高さ ${boxH.toFixed(0)}px、${(r2.height - boxH).toFixed(0)}px 溢れる）— 高さを増やすか、文言を短くするか、行数を制限する` });
+    }
   }
 
   // H111 ラベルの大半が切り詰められている。1〜2 個なら普通のことだが、
@@ -502,7 +578,7 @@ export function measure(shapes, edges = [], opts = {}) {
   const labelBoxes = shapes.filter((s) => s.label && (s.font ?? 12) >= minFont).map((s) => {
     const font = s.font ?? 12;
     if (s.labelBox) return { id: s.id, x: s.labelBox.x, y: s.labelBox.y, w: s.labelBox.w, h: s.labelBox.h, outside: true };
-    const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
+    const inner = contentWidth(s);
     const tw = textWidth(fitText(s.label, inner, font * cw), font * cw);
     return { id: s.id, x: s.x, y: s.y, w: tw, h: font * 1.2 };
   });
@@ -549,7 +625,7 @@ export function measure(shapes, edges = [], opts = {}) {
   return {
     problems,
     metrics: {
-      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable, truncated, outside,
+      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable, truncated, clipped, outside,
       crossings, crossingRatio: crossings / maxCross, minCrossAngle: segs.length ? minAngle : null, shallowCrossings: shallow,
       pierces, labelHits, aspect: ar, visibleEdgeWeightRatio: visibleRatio,
       edgeLengthCV: cv,

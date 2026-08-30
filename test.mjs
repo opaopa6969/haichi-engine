@@ -1,6 +1,6 @@
 // haichi-engine の単体テスト。依存ゼロ、node test.mjs で走る。
 import assert from 'node:assert/strict';
-import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap, overlapOf, graphemes } from './index.js';
+import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap, overlapOf, graphemes, contentWidth, wrapText } from './index.js';
 
 let n = 0; const ok = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`NG ${name}: ${e.message}`); process.exitCode = 1; } };
 
@@ -506,6 +506,62 @@ ok('textWidth と fitText の単位が揃っている', () => {
       assert.ok(textWidth(cut, 5) <= w + 1e-6, `"${str}" を ${w} に切ったら ${textWidth(cut, 5)} になった`);
     }
   }
+});
+
+
+// --- outerBox / contentBox の分離と折返し（design-catalog の要望 5・6）
+
+ok('contentWidth は pad と実測値を受ける', () => {
+  assert.equal(contentWidth({ w: 200 }), 194, '既定は外形 - 6');
+  assert.equal(contentWidth({ w: 200, pad: 16 }), 168, 'padding を引いていない');
+  assert.equal(contentWidth({ w: 200, contentW: 150 }), 150, '実測値を無視した');
+  assert.equal(contentWidth({ r: 30 }), 54, '円の既定が変わった');
+});
+
+ok('padding を渡すと検出結果が変わる', () => {
+  const base = { id: 'btn', x: 0, y: 0, w: 200, h: 44, label: '送信して次のステップへ進む', font: 16 };
+  const loose = measure([base], [], { allowEllipsis: false });
+  const tight = measure([{ ...base, pad: 40 }], [], { allowEllipsis: false });
+  assert.ok(tight.problems.length >= loose.problems.length, 'padding を増やしても厳しくならない');
+});
+
+ok('wrapText は折り返して行数を返す', () => {
+  const r = wrapText('配置と、配置が読めるかの測定。これは折り返しの検査です。', 200, 7.7, { font: 14 });
+  assert.ok(r.count >= 2, `${r.count} 行`);
+  assert.equal(r.height, r.count * r.lineHeight);
+  assert.equal(r.lines.join(''), '配置と、配置が読めるかの測定。これは折り返しの検査です。', '文字が落ちた');
+});
+
+ok('wrapText は行頭禁則を守る', () => {
+  // 「、」「。」が行頭に来ないこと
+  for (const t of ['あああああ、いいいい。', 'ああああ。いいい、ううう']) {
+    for (const w of [20, 30, 44, 60]) {
+      for (const line of wrapText(t, w, 7.7, { font: 14 }).lines) {
+        assert.ok(!'、。'.includes(line[0]), `行頭に約物が来た: ${JSON.stringify(line)}`);
+      }
+    }
+  }
+});
+
+ok('wrapText は maxLines で止まる', () => {
+  const r = wrapText('あ'.repeat(200), 100, 7.7, { font: 14, maxLines: 3 });
+  assert.equal(r.count, 3);
+  assert.equal(r.truncated, true);
+});
+
+ok('折り返して高さを超えると H112', () => {
+  const s = { id: 'card', x: 0, y: 0, w: 220, h: 60, pad: 12, wrap: true, font: 14,
+    label: '配置と、配置が読めるかの測定。これは折り返しの検査です、行数が問題になります。' };
+  const r = measure([s], []);
+  const p = r.problems.find((x) => x.code === 'H112');
+  assert.ok(p, '溢れているのに黙った');
+  assert.match(p.message, /行になり/);
+  assert.equal(r.metrics.clipped, 1);
+});
+
+ok('wrap を渡さなければ H112 は出ない', () => {
+  const s = { id: 'card', x: 0, y: 0, w: 220, h: 60, pad: 12, font: 14, label: 'ながい文章'.repeat(10) };
+  assert.ok(!measure([s], []).problems.some((p) => p.code === 'H112'));
 });
 
 console.error(`test: ${n} pass`);

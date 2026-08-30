@@ -105,6 +105,8 @@ zumen（ソフトウェア構造の可視化）で実測したところ、174 �
 |---|---|
 | `fitText(str, width, cw)` | 幅に収まるところまで切り「…」を付ける。「…」すら入らないなら空を返す |
 | `textWidth(str, cw)` | 文字幅の見積り（全角は 1.75 倍）。`fitText` と同じ単位で数える |
+| `contentWidth(s, pad)` | 文字を置ける幅。`pad` か `contentW` を渡せば **`w - 6` の決め打ちをしない**（Web の padding / border 用） |
+| `wrapText(str, w, cw, opts)` | 折り返して何行になるかを返す。日本語の禁則（行頭・行末に来てはいけない文字）を見る |
 | `graphemes(str)` | 書記素（人が「1 文字」と感じる単位）に割る。ZWJ 連結の絵文字・国旗・肌の色・結合文字・異体字セレクタを 1 つに数える |
 | `overlapOf(a, b, gap)` | **形が違っても正しく測る重なり量**。円×矩形は矩形上の最近点との距離で測る（円は「幅も高さも 2r の矩形」ではない） |
 | `circleOverlap` / `rectOverlap` | 同じ形どうしの重なり量 |
@@ -140,6 +142,22 @@ import { blocks, relax3, project, visibleFrom, measure3, semanticLod } from 'hai
 
 zumen の CodeCity（コードを建物に見立てた 3D ビュー）4 リポジトリに当てたところ **930 件**。内訳は `V102` 通れない隙間 854 / `V101` 重なり 66 / `V103` 遮蔽 4 / `V104` 読めないラベル 4。zumen には一人称歩行があるので、V102 はそのまま「入れない街区」を意味する。
 
+## Web（`haichi-engine/web`）
+
+**engine 本体は DOM を知らない**ので、実測はこの層が受け持つ。
+
+```js
+import { collect } from 'haichi-engine/web';        // ブラウザ側で測る
+import { checkSnapshot } from 'haichi-engine/web';  // どこでも（node でも）検査する
+```
+
+間にあるのは素の JSON なので、**測る側と判定する側を別のマシン・別の時点にできる**。
+`W201` 1 行に入らない / `W202` 折り返すと高さを超える / `W203` 文字が小さい / `W204` 意図しない横スクロール。
+`checkResponsive` は複数の画面幅で検査して、**どの幅で壊れるか**を返す。
+
+**ブラウザ無しに測れないものがある**ことが要点で、`collect()` は node では理由を言って落ちる。
+Grid / Flex / `clamp()` 後の実座標も、実フォントの幅も、日本語の折返し行数も、ブラウザに測らせるしかない。
+
 ## つなぎ方（`integration/`）
 
 依存の向きは**下流 → haichi の一方向**。haichi は相手のデータ形式を知らないので、変換はこのディレクトリが持つ。
@@ -172,7 +190,7 @@ ZIR（描画非依存の JSON）を入れ子に畳み、配置と測定を返す
 
 ## 状態
 
-v0.0.7。2D 64 / 3D 22 / zumen 連携 5 / game 連携 15 / 文書の実行 11 / 文書の整合 5 の計 127 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
+v0.0.8。2D 71 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 文書の実行 11 / 文書の整合 5 の計 145 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
 
 ```
 npm test
