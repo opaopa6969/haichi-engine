@@ -1,6 +1,6 @@
 // haichi-engine の単体テスト。依存ゼロ、node test.mjs で走る。
 import assert from 'node:assert/strict';
-import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap, overlapOf } from './index.js';
+import { pack, tree, treemap, relax, grid, placeLabels, measure, fitText, textWidth, rng, circleOverlap, rectOverlap, overlapOf, graphemes } from './index.js';
 
 let n = 0; const ok = (name, fn) => { try { fn(); n++; } catch (e) { console.error(`NG ${name}: ${e.message}`); process.exitCode = 1; } };
 
@@ -469,6 +469,43 @@ ok('置けない理由を返す', () => {
   const l = placeLabels(S, { obstacles: [wall], prefer: 'outside' }).get('a');
   assert.ok(l.hidden, '囲まれているのに置けた');
   assert.match(l.why, /図形|ラベル|辺|領域/);
+});
+
+
+ok('fitText は書記素を割らない', () => {
+  // コードポイントで割ると、家族の絵文字（ZWJ 連結）が 👨 だけになる
+  const seg = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+  const gr = (s) => (seg ? [...seg.segment(s)].map((x) => x.segment) : [...s]);
+  let bad = 0;
+  for (const str of ['ab👨‍👩‍👧cd', 'あ🇯🇵い', 'x👍🏽y', 'かが゙き', '葛󠄁飾区']) {
+    for (let w = 4; w <= 60; w += 2) {
+      const o = fitText(str, w, 4);
+      assert.ok(o.isWellFormed(), `不正な UTF-16: ${JSON.stringify(o)}`);
+      const body = o.endsWith('…') ? o.slice(0, -1) : o;
+      if (!body) continue;
+      const gs = gr(str); let acc = '', ok2 = false;
+      for (let i = 0; i <= gs.length; i++) { if (acc === body) { ok2 = true; break; } acc += gs[i] ?? ''; }
+      if (!ok2) bad++;
+    }
+  }
+  assert.equal(bad, 0, `${bad} 通りで書記素が割れた`);
+});
+
+ok('graphemes は連結を 1 つに数える', () => {
+  assert.equal(graphemes('👨‍👩‍👧').length, 1, 'ZWJ 家族が割れた');
+  assert.equal(graphemes('🇯🇵').length, 1, '国旗が割れた');
+  assert.equal(graphemes('👍🏽').length, 1, '肌の色が割れた');
+  assert.equal(graphemes('abあ').length, 3);
+});
+
+ok('textWidth と fitText の単位が揃っている', () => {
+  // ずれると「切ったのにはみ出す」が起きる
+  for (const str of ['ab👨‍👩‍👧cd', '北海道地方全域', '🇯🇵🇯🇵🇯🇵']) {
+    for (const w of [10, 25, 40, 80]) {
+      const cut = fitText(str, w, 5);
+      assert.ok(textWidth(cut, 5) <= w + 1e-6, `"${str}" を ${w} に切ったら ${textWidth(cut, 5)} になった`);
+    }
+  }
 });
 
 console.error(`test: ${n} pass`);

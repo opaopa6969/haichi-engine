@@ -44,17 +44,30 @@ export function overlapOf(a, b, gap = 0) {
 
 /** 全角を 1.75 文字ぶんで数える文字幅（等幅でない前提の粗い見積り） */
 export function textWidth(str, cw) {
+  // fitText と同じ単位（書記素）で数える。ずれると「切ったのにはみ出す」が起きる
   let acc = 0;
-  for (const ch of String(str ?? '')) acc += ch.charCodeAt(0) > 255 ? cw * 1.75 : cw;
+  for (const g of graphemes(str)) acc += g.codePointAt(0) > 255 ? cw * 1.75 : cw;
   return acc;
 }
 /** 幅に収まるところまで切り、入らなければ末尾を削って「…」のぶんを空ける */
+/**
+ * 書記素（人が「1 文字」と感じる単位）に割る。
+ * コードポイントで割ると、家族の絵文字（ZWJ 連結）が 👨 だけになり、
+ * 国旗・肌の色・結合文字・異体字セレクタも割れる。Intl.Segmenter があればそれを使い、
+ * 無い環境ではコードポイントに落ちる（不正な UTF-16 は出さない）。
+ */
+const SEGMENTER = typeof Intl !== 'undefined' && Intl.Segmenter ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+export function graphemes(str) {
+  const s = String(str ?? '');
+  return SEGMENTER ? [...SEGMENTER.segment(s)].map((x) => x.segment) : [...s];
+}
+
 export function fitText(str, width, cw) {
-  const w = (ch) => (ch.codePointAt(0) > 255 ? cw * 1.75 : cw);
+  const w = (g) => (g.codePointAt(0) > 255 ? cw * 1.75 : cw);
   const ELL = cw * 1.75;
-  // **コード単位ではなくコードポイントで扱う。** `out.slice(0, -1)` で削ると
-  // サロゲートペアが半分に切れ、不正な UTF-16（絵文字の片割れ）を返していた
-  const chars = [...String(str ?? '')];
+  // **書記素で扱う。** コード単位で削るとサロゲートペアが半分に切れ、
+  // コードポイントで削ると ZWJ 連結の絵文字が割れる
+  const chars = graphemes(str);
   let acc = 0; const out = [];
   for (const ch of chars) {
     if (acc + w(ch) > width) {
