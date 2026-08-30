@@ -117,4 +117,44 @@ ok('measure は綺麗な配置に文句を言わない', () => {
   assert.equal(r.problems.length, 0, JSON.stringify(r.problems));
 });
 
+
+ok('浅い交差を角度で検出する（H107）', () => {
+  // ほぼ平行に近い 2 本を交差させる
+  const shapes = [{ id: 'a', x: 0, y: 0, r: 3 }, { id: 'b', x: 300, y: 10, r: 3 }, { id: 'c', x: 0, y: 10, r: 3 }, { id: 'd', x: 300, y: 0, r: 3 }];
+  const r = measure(shapes, [{ from: 'a', to: 'b' }, { from: 'c', to: 'd' }]);
+  assert.ok(r.metrics.minCrossAngle < 20, `交差角 ${r.metrics.minCrossAngle}`);
+  assert.ok(r.problems.some((p) => p.code === 'H107'), '浅い交差を報告していない');
+});
+
+ok('直角の交差は責めない（H107）', () => {
+  const shapes = [{ id: 'a', x: 0, y: 50, r: 3 }, { id: 'b', x: 100, y: 50, r: 3 }, { id: 'c', x: 50, y: 0, r: 3 }, { id: 'd', x: 50, y: 100, r: 3 }];
+  const r = measure(shapes, [{ from: 'a', to: 'b' }, { from: 'c', to: 'd' }]);
+  assert.equal(r.metrics.crossings, 1);
+  assert.ok(!r.problems.some((p) => p.code === 'H107'), '直角なのに浅いと言った');
+});
+
+ok('辺がラベルを横切ると報告する（H108）', () => {
+  const shapes = [
+    { id: 'a', x: 0, y: 0, r: 6 }, { id: 'b', x: 400, y: 0, r: 6 },
+    { id: 'm', x: 200, y: 0, r: 40, label: 'まんなか', font: 14 },
+  ];
+  const r = measure(shapes, [{ from: 'a', to: 'b' }]);
+  assert.ok(r.metrics.labelHits >= 1, 'ラベルの上を通っているのに 0');
+});
+
+ok('辺を間引きすぎると報告する（H109）', () => {
+  const shapes = [{ id: 'a', x: 0, y: 0, r: 20 }, { id: 'b', x: 200, y: 0, r: 20 }];
+  const shown = [{ from: 'a', to: 'b', weight: 10 }];
+  const ok1 = measure(shapes, shown, { totalEdgeWeight: 12 });
+  assert.ok(!ok1.problems.some((p) => p.code === 'H109'), '83% 見えているのに責めた');
+  const ng = measure(shapes, shown, { totalEdgeWeight: 100 });
+  assert.ok(ng.problems.some((p) => p.code === 'H109'), '10% しか見えていないのに黙った');
+  assert.ok(Math.abs(ng.metrics.visibleEdgeWeightRatio - 0.1) < 1e-9);
+});
+
+ok('totalEdgeWeight を渡さなければ H109 は出ない', () => {
+  const r = measure([{ id: 'a', x: 0, y: 0, r: 20 }, { id: 'b', x: 200, y: 0, r: 20 }], [{ from: 'a', to: 'b' }]);
+  assert.ok(!r.problems.some((p) => p.code === 'H109'));
+});
+
 console.error(`test: ${n} pass`);

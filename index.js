@@ -251,7 +251,8 @@ export function placeLabels(shapes, { minFont = 9, gap = 2, cw = 0.55 } = {}) {
  * shapes: [{ id, x, y, r?|w,h, label?, font? }]  edges: [{ from, to }]
  * → { problems: [{ code, id, message }], metrics: {...} }
  */
-export function measure(shapes, edges = [], { minFont = 9, gap = 2, cw = 0.55 } = {}) {
+export function measure(shapes, edges = [], opts = {}) {
+  const { minFont = 9, gap = 2, cw = 0.55 } = opts;
   const problems = [];
   const by = new Map(shapes.map((s) => [s.id, s]));
   const ext = (s) => (s.r != null ? s.r : Math.max(s.w, s.h) / 2);
@@ -288,7 +289,7 @@ export function measure(shapes, edges = [], { minFont = 9, gap = 2, cw = 0.55 } 
   }
 
   // H104 辺の交差（多いほど追えない）
-  const segs = edges.map((e) => { const a = by.get(e.from), b = by.get(e.to); return a && b ? { a, b } : null; }).filter(Boolean);
+  const segs = edges.map((e) => { const a = by.get(e.from), b = by.get(e.to); return a && b ? { a, b, w: e.weight ?? 1 } : null; }).filter(Boolean);
   let crossings = 0;
   for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
     if (segs[i].a === segs[j].a || segs[i].a === segs[j].b || segs[i].b === segs[j].a || segs[i].b === segs[j].b) continue;
@@ -313,10 +314,73 @@ export function measure(shapes, edges = [], { minFont = 9, gap = 2, cw = 0.55 } 
   const ar = W / H;
   if (shapes.length > 3 && (ar > 6 || ar < 1 / 6)) problems.push({ code: 'H106', id: '(全体)', message: `縦横比が ${ar.toFixed(1)}:1 で極端 — 画面に収めると読めなくなる。段組みにするか深さを減らす` });
 
+  // H107 浅い角度の交差。Purchase らの実験では、交差の「数」より
+  // 「角度」が読みやすさを左右する。直角に近い交差は目で追えるが、浅い交差は線が分岐して見える。
+  let shallow = 0, minAngle = 180;
+  for (let i = 0; i < segs.length; i++) for (let j = i + 1; j < segs.length; j++) {
+    const A = segs[i], B = segs[j];
+    if (A.a === B.a || A.a === B.b || A.b === B.a || A.b === B.b) continue;
+    if (!segsCross(A.a, A.b, B.a, B.b)) continue;
+    const ang = crossAngle(A.a, A.b, B.a, B.b);
+    minAngle = Math.min(minAngle, ang);
+    if (ang < 20) shallow++;
+  }
+  if (shallow) problems.push({ code: 'H107', id: '(全体)', message: `${shallow} 組の辺が ${minAngle.toFixed(0)}° という浅い角度で交差している（目安 20° 以上）— 交差の数より角度の方が効く。端点をずらすか経路を曲げる` });
+
+  // H108 辺がラベルを横切る。ラベルは読ませたいものなので、線が乗ると台無しになる
+  let labelHits = 0;
+  const labelBoxes = shapes.filter((s) => s.label && (s.font ?? 12) >= minFont).map((s) => {
+    const font = s.font ?? 12;
+    const inner = s.r != null ? s.r * 2 - 6 : s.w - 6;
+    const tw = textWidth(fitText(s.label, inner, font * cw), font * cw);
+    return { id: s.id, x: s.x, y: s.y, w: tw, h: font * 1.2 };
+  });
+  for (const { a, b } of segs) for (const L of labelBoxes) {
+    if (L.id === a.id || L.id === b.id) continue;
+    if (segRectHit(a, b, L)) { labelHits++; break; }
+  }
+  if (labelHits) problems.push({ code: 'H108', id: '(全体)', message: `${labelHits} 本の辺がラベルの上を通っている — ラベルを placeLabels() で逃がすか、辺に白フチを付ける` });
+
+  // H109 辺の間引きすぎ。**辺を捨てれば交差も貫通も減るので、指標だけは良くなる**。
+  // 捨てた辺の重みを渡してもらい、「見えている割合」を測って歯止めにする。
+  const shownW = segs.reduce((a, s) => a + (s.w ?? 1), 0);
+  const totalW = opts.totalEdgeWeight ?? shownW;
+  const visibleRatio = totalW > 0 ? shownW / totalW : 1;
+  if (opts.totalEdgeWeight != null && visibleRatio < 0.5) {
+    problems.push({ code: 'H109', id: '(全体)', message: `辺の重みの ${(visibleRatio * 100).toFixed(0)}% しか描かれていない（目安 50% 以上）— 交差や貫通の指標は辺を捨てるほど良くなるので、間引きで解いたことにしない` });
+  }
+
+  // 辺の長さの均一性（ばらつきが大きいほど読みにくい）と応力（近さの保存）
+  const lens = segs.map(({ a, b }) => Math.hypot(a.x - b.x, a.y - b.y));
+  const mean = lens.length ? lens.reduce((x, y) => x + y, 0) / lens.length : 0;
+  const cv = mean ? Math.sqrt(lens.reduce((x, l) => x + sq(l - mean), 0) / lens.length) / mean : 0;
+
   return {
     problems,
-    metrics: { shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable, crossings, crossingRatio: crossings / maxCross, pierces, aspect: ar },
+    metrics: {
+      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable,
+      crossings, crossingRatio: crossings / maxCross, minCrossAngle: segs.length ? minAngle : null, shallowCrossings: shallow,
+      pierces, labelHits, aspect: ar, visibleEdgeWeightRatio: visibleRatio,
+      edgeLengthCV: cv,
+    },
   };
+}
+
+/** 2 直線の交差角（0〜90 度）。浅いほど読みにくい */
+function crossAngle(p1, p2, p3, p4) {
+  const a1 = Math.atan2(p2.y - p1.y, p2.x - p1.x), a2 = Math.atan2(p4.y - p3.y, p4.x - p3.x);
+  let d = Math.abs((a1 - a2) * 180 / Math.PI) % 180;
+  return d > 90 ? 180 - d : d;
+}
+/** 線分が矩形（中心 x,y・幅 w・高さ h）に触れるか */
+function segRectHit(a, b, r) {
+  const x0 = r.x - r.w / 2, x1 = r.x + r.w / 2, y0 = r.y - r.h / 2, y1 = r.y + r.h / 2;
+  if (Math.max(a.x, b.x) < x0 || Math.min(a.x, b.x) > x1 || Math.max(a.y, b.y) < y0 || Math.min(a.y, b.y) > y1) return false;
+  const inside = (p) => p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+  if (inside(a) || inside(b)) return true;
+  const c = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  for (let i = 0; i < 4; i++) if (segsCross(a, b, c[i], c[(i + 1) % 4])) return true;
+  return false;
 }
 
 const ccw = (a, b, c) => (c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x);
