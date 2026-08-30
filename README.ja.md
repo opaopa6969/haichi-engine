@@ -142,6 +142,30 @@ import { blocks, relax3, project, visibleFrom, measure3, semanticLod } from 'hai
 
 zumen の CodeCity（コードを建物に見立てた 3D ビュー）4 リポジトリに当てたところ **930 件**。内訳は `V102` 通れない隙間 854 / `V101` 重なり 66 / `V103` 遮蔽 4 / `V104` 読めないラベル 4。zumen には一人称歩行があるので、V102 はそのまま「入れない街区」を意味する。
 
+## 集約（`haichi-engine/cluster`）
+
+配置の**前段**。数百を数百のまま置く方法は無いので、置く前に数を減らす。
+
+```js
+import { splitBySize, groupBy, cluster, summarize } from 'haichi-engine/cluster';
+
+// 入口が 30 個に収まるまで、大きすぎる塊を割る
+splitBySize(children, { maxEntry: 30, maxBlock: 120, strategies });
+```
+
+| | |
+|---|---|
+| `splitBySize(children, opts)` | 入口が収まるまで木を割る。**割れないものは skip して次に大きいものを試す** |
+| `groupBy(items, opts)` | 束ね方を順に試す。**偏ったら次の戦略へ** |
+| `cluster(ids, edges, opts)` | 依存の強さで群を作る。**木が無い／木が意味を持たない**場合はこちら |
+| `summarize(items, opts)` | 群の代表（数・規模・最も多い性質） |
+
+**意味の判断は呼ぶ側が戦略として渡す。** engine が持つのは「順に試して、うまく割れたものを採る」というメカニズムだけ（契約「何であるかを知らない」を守るため）。
+
+閾値は `cognitive` の `COGNITIVE` と同じ根拠から来る。**同じ根拠のものを別 repo に置くと定数を二重管理する**ので同居させている。
+
+実測（zumen の 158 リポジトリ、CodeCity の入口）: `C201`/`C202`/`C204`/`C205` が **154 → 3 件**。
+
 ## 認知の評価（`haichi-engine/cognitive`）
 
 **数百を数百のまま見せる方法は存在しない。**手は 3 つしかない。
@@ -219,7 +243,7 @@ ZIR（描画非依存の JSON）を入れ子に畳み、配置と測定を返す
 
 ## 状態
 
-v0.1.0。2D 71 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 認知 21 / 文書の実行 11 / 文書の整合 5 の計 166 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
+v0.2.0。2D 71 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 認知 21 / 集約 14 / 文書の実行 11 / 文書の整合 5 の計 180 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
 
 ```
 npm test
