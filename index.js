@@ -317,7 +317,7 @@ export function measure(shapes, edges = [], opts = {}) {
   // 外置きは「はみ出す」概念が無いので H102 は見ず、H101（ラベル同士の重なり）と
   // H108（辺が横切る）の対象にする。これが無いと、外にラベルを置く現実の配置を
   // 影の図形に変換しないと測れなかった（tetsugo の指摘）。
-  let unreadable = 0, overflow = 0;
+  let unreadable = 0, overflow = 0, truncated = 0;
   for (const s of shapes) {
     if (!s.label) continue;
     const font = s.font ?? 12;
@@ -335,8 +335,16 @@ export function measure(shapes, edges = [], opts = {}) {
       problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」は使える幅 ${inner.toFixed(0)}px に 1 文字も入らない（必要 ${full.toFixed(0)}px）— 図形を広げるか、placeLabels() で外に出すか、この深さでは名前を出さない` });
       continue;
     }
+    if (cut !== s.label) truncated++;   // 読める形には収まったが、情報は落ちている
     const tw = textWidth(cut, font * cw);
     if (tw > inner + 0.5) { overflow++; problems.push({ code: 'H102', id: s.id, message: `${s.id} のラベル「${s.label}」が ${(tw - inner).toFixed(1)}px はみ出す（文字 ${tw.toFixed(0)}px > 使える幅 ${inner.toFixed(0)}px）— fitText() を通すか図形を広げる` }); }
+  }
+
+  // H111 ラベルの大半が切り詰められている。1〜2 個なら普通のことだが、
+  // 過半が「…」付きなら、その深さで名前を出す設計自体が合っていない
+  const labeled = shapes.filter((s) => s.label && (s.font ?? 12) >= minFont).length;
+  if (labeled >= 4 && truncated / labeled > 0.5) {
+    problems.push({ code: 'H111', id: '(全体)', message: `${truncated}/${labeled} のラベルが切り詰められている（${Math.round(truncated / labeled * 100)}%、目安 50% 以下）— 図形を大きくするか、placeLabels() で外に出すか、この深さでは名前を出さない` });
   }
 
   // H104 辺の交差（多いほど追えない）
@@ -432,7 +440,7 @@ export function measure(shapes, edges = [], opts = {}) {
   return {
     problems,
     metrics: {
-      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable, outside,
+      shapes: shapes.length, edges: segs.length, overlaps, overflow, unreadable, truncated, outside,
       crossings, crossingRatio: crossings / maxCross, minCrossAngle: segs.length ? minAngle : null, shallowCrossings: shallow,
       pierces, labelHits, aspect: ar, visibleEdgeWeightRatio: visibleRatio,
       edgeLengthCV: cv,

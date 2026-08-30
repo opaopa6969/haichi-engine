@@ -14,6 +14,16 @@ const report = measure(shapes, edges);
 //     metrics: { overlaps, overflow, unreadable, crossings, pierces, aspect } }
 ```
 
+## 読むもの
+
+| | |
+|---|---|
+| **[使い方](./docs/usage.ja.md)** | 場面ごとのレシピ。**載っているコードは全部そのまま動く**（`docs/examples.mjs` で実行して確かめている） |
+| **[仕組み](./docs/internals.ja.md)** | 中で何が起きているか、なぜこの設計なのか、実地で見つかった欠陥、まだ無いもの |
+| **[測定規則](./docs/rules.ja.md)** | `measure` / `measure3` が返す 18 の規則。閾値と直し方の全リファレンス |
+
+この README は入口。API の一覧と設計契約だけ置いてある。
+
 ## 設計契約
 
 - **何であるかを知らない。** 入力は「大きさを持つもの」と「つながり」だけ。クラスでも、すごろくのマスでも、UI パネルでも、麻雀卓の席でも同じに扱う。
@@ -84,7 +94,15 @@ zumen（ソフトウェア構造の可視化）で実測したところ、174 �
 
 ### 道具
 
-`fitText` / `textWidth` / `circleOverlap` / `rectOverlap` / `rng`（seed 固定の mulberry32）
+| 関数 | 何をするか |
+|---|---|
+| `fitText(str, width, cw)` | 幅に収まるところまで切り「…」を付ける。「…」すら入らないなら空を返す |
+| `textWidth(str, cw)` | 文字幅の見積り（全角は 1.75 倍） |
+| `overlapOf(a, b, gap)` | **形が違っても正しく測る重なり量**。円×矩形は矩形上の最近点との距離で測る（円は「幅も高さも 2r の矩形」ではない） |
+| `circleOverlap` / `rectOverlap` | 同じ形どうしの重なり量 |
+| `rng(seed)` | seed 固定の擬似乱数（mulberry32） |
+
+3D 側には `overlapOf3(a, b, gap)`（球×直方体）と `dist3(a, b)` がある。
 
 ## 3D（`haichi-engine/3d`）
 
@@ -146,7 +164,7 @@ ZIR（描画非依存の JSON）を入れ子に畳み、配置と測定を返す
 
 ## 状態
 
-v0.0.3。2D 46 / 3D 22 / zumen 連携 5 / game 連携 15 の計 88 テスト。
+v0.0.4。2D 46 / 3D 22 / zumen 連携 5 / game 連携 15 / 文書の実行 11 / 文書の整合 5 の計 104 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
 
 ```
 npm test
