@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>haichi-engine — 配置と、配置が読めるかの測定</title>
+<link rel="stylesheet" href="./style.css">
+
+<header>
+  <h1>haichi-engine</h1>
+  <p class="lead">
+    「<b>どこに置くか</b>」だけを決める純粋幾何エンジン。描画はしない。<br>
+    置いた結果が<b>読めるかを測って返す</b>のが、他の配置ライブラリと違うところ。
+  </p>
+  <p class="meta">
+    依存ゼロ・決定論的・2D と 3D ·
+    <a href="https://github.com/opaopa6969/haichi-engine">GitHub</a> ·
+    <a href="https://github.com/opaopa6969/haichi-engine/blob/main/docs/usage.ja.md">使い方</a> ·
+    <a href="https://github.com/opaopa6969/haichi-engine/blob/main/docs/rules.ja.md">測定規則</a>
+  </p>
+  <p class="note">
+    このページは<b>ビルドしていない</b>。ブラウザが <code>index.js</code> をそのまま読んでいる。
+  </p>
+</header>
+
+<main>
+
+<section id="why">
+  <h2>1. なぜ「測る」のか</h2>
+  <p>
+    座標を出す道具は世に多い。足りないのは<b>出した配置が読めるかを測る</b>道具で、そこが実際に事故を生む。
+    下は実際に起きた欠陥の再現。<b>左が壊れていた版、右が直した版</b>。データも設定も同じ。
+  </p>
+
+  <div class="split">
+    <figure>
+      <figcaption>壊れていた版 — 内外を「切り詰めた<b>後</b>の文字」で判定</figcaption>
+      <svg id="bug-before" viewBox="0 0 460 300"></svg>
+      <p class="verdict bad" id="bug-before-v"></p>
+    </figure>
+    <figure>
+      <figcaption>直した版 — 内外は「切り詰める<b>前</b>の全長」で決める</figcaption>
+      <svg id="bug-after" viewBox="0 0 460 300"></svg>
+      <p class="verdict good" id="bug-after-v"></p>
+    </figure>
+  </div>
+  <p class="caption">
+    <code>fitText</code> が返した「…」が常に円の内側に収まってしまい、<b>外周 8 方向を一度も試さなかった</b>。
+    すごろくゲーム tetsugo の 616 駅が全部「…」になり、しかも <code>measure()</code> はそれを「問題なし」と報告した。
+    他人の図を検査する道具が、自分の配置で同じ間違いをしていた。
+  </p>
+</section>
+
+<section id="measure">
+  <h2>2. 壊してみる</h2>
+  <p>
+    幅を縮めると、何がどう壊れるかが数値で出る。<b>メッセージには必ず実測値・閾値・直し方が入る</b> —
+    読むのが人でも LLM でも、メッセージだけを見て直せなければ意味がないから。
+  </p>
+  <div class="controls">
+    <label>領域の幅 <input type="range" id="w" min="140" max="460" value="460"><output id="w-out"></output></label>
+    <label>文字の大きさ <input type="range" id="f" min="6" max="20" value="13"><output id="f-out"></output></label>
+    <label><input type="checkbox" id="ellipsis"> 切り詰めを許さない</label>
+  </div>
+  <div class="split">
+    <figure><svg id="live" viewBox="0 0 460 300"></svg></figure>
+    <div class="problems" id="live-problems"></div>
+  </div>
+</section>
+
+<section id="layouts">
+  <h2>3. 配置</h2>
+  <p>同じデータを 3 通りに置く。どれも同じ入力からは必ず同じ座標が出る（決定論的）。</p>
+  <div class="triple">
+    <figure><figcaption><code>pack</code> — 入れ子の円詰め</figcaption><svg id="lay-pack" viewBox="0 0 300 300"></svg></figure>
+    <figure><figcaption><code>treemap</code> — 面積が値に比例</figcaption><svg id="lay-tree" viewBox="0 0 300 300"></svg></figure>
+    <figure><figcaption><code>grid</code> — 順序を保つ</figcaption><svg id="lay-grid" viewBox="0 0 300 300"></svg></figure>
+  </div>
+  <p class="caption">
+    手牌やツールバーのように<b>順番が意味を持つもの</b>は、押し離しでは並べられない（順序が壊れる）。
+    <code>grid</code> は入りきらない量を <code>overflow</code> で返すだけで、<b>勝手に縮めない</b>。
+  </p>
+</section>
+
+<section id="relax">
+  <h2>4. 押し出して消すのは解決ではない</h2>
+  <p>
+    領域の外へ押し出せば重なりは必ず消える。だがそれは解決ではない。
+    麻雀ゲーム netmahg で手牌を押し離したら重なりは 0 になったが、幅が 543px に再拡大して画面に入らなくなった。
+  </p>
+  <div class="split">
+    <figure>
+      <figcaption><code>bounds</code> なし — 重なりは消えたが領域外へ</figcaption>
+      <svg id="relax-no" viewBox="0 0 460 260"></svg>
+      <p class="verdict bad" id="relax-no-v"></p>
+    </figure>
+    <figure>
+      <figcaption><code>bounds</code> あり — 入りきらないなら重なったまま残し、報告する</figcaption>
+      <svg id="relax-yes" viewBox="0 0 460 260"></svg>
+      <p class="verdict good" id="relax-yes-v"></p>
+    </figure>
+  </div>
+</section>
+
+<section id="three-d">
+  <h2>5. 3D で新しく問題になる 3 つ</h2>
+  <p>
+    2D の指標をそのまま持ち込んでも測れないものがある。<b>どれも視点を与えないと測れない</b>ので、
+    <code>measure3</code> は camera を取る。
+  </p>
+  <div class="controls">
+    <label>視点の高さ <input type="range" id="cam-y" min="60" max="1400" value="700"><output id="cam-y-out"></output></label>
+    <label>視点の距離 <input type="range" id="cam-z" min="700" max="3500" value="1500"><output id="cam-z-out"></output></label>
+  </div>
+  <div class="split">
+    <figure><svg id="city" viewBox="0 0 640 420"></svg></figure>
+    <div class="problems" id="city-problems"></div>
+  </div>
+  <p class="caption">
+    <b>遮蔽</b>（手前の物が奥を隠す）·
+    <b>通行</b>（人が歩くなら隙間が狭いと通れない）·
+    <b>距離による可読性</b>（ラベルの大きさは距離で決まる）。
+    投影は <code>project()</code> が純粋な数式でやっている — three.js も WebGL も使っていない。
+  </p>
+</section>
+
+<section id="found">
+  <h2>6. 実地で見つかった欠陥</h2>
+  <p>このエンジンが良くなったのは、全部<b>実際のプロダクトに当てて批判されたから</b>。</p>
+  <table>
+    <thead><tr><th>相手</th><th>見つかったもの</th></tr></thead>
+    <tbody>
+      <tr><td><b>zumen</b><br><span class="dim">174 リポジトリの可視化</span></td>
+        <td>省略記号を幅計算の外で足していた／ラベルの表示可否を半径で判断していて、小さい図形は下限 4px で頭打ちになっていた<br><span class="num">指摘 8,842 → 0</span></td></tr>
+      <tr><td><b>tetsugo</b><br><span class="dim">すごろく 3,583 マス</span></td>
+        <td><code>placeLabels</code> が切り詰めた「…」で内外を判定していた／<code>alongPath</code> が格子・斜め禁止・区間マス数を表現できなかった<br><span class="num">616 駅が全部「…」→ 外置き 610・衝突 0 組</span></td></tr>
+      <tr><td><b>netmahg</b><br><span class="dim">ネット対戦麻雀</span></td>
+        <td><code>integration/</code> が配布物に無かった／完全同位置で <code>relax</code> が分離しなかった／画面外へ押し出す解を成功扱いしていた<br><span class="num">スマホ幅で点数盤が 4.7px と判明</span></td></tr>
+      <tr><td><b>volta-wm</b><br><span class="dim">ウィンドウマネージャ</span></td>
+        <td>単独で領域外にあるものを <code>bounds</code> が引き戻さなかった／<b><code>treemap</code> の squarify 式が壊れていて 13,337:1 の矩形を作っていた</b>／格子への丸めで同じマスに戻った</td></tr>
+      <tr><td><b>design-catalog</b><br><span class="dim">HTML 生成カタログ</span></td>
+        <td><code>measure</code> が切り詰めた「後」の幅を検査しており、160px の枠に 369px 必要な文言を入れても指摘 0 件だった／<code>fitText</code> がサロゲートペアを壊していた</td></tr>
+    </tbody>
+  </table>
+  <blockquote>
+    README が「zumen で見つけた」と誇っている 2 つの欠陥と<b>同じ型のバグが placeLabels 自身に入っている</b>
+    <cite>— tetsugo の検証より</cite>
+  </blockquote>
+  <p class="caption">上の欠陥は全部テストで固定してある（113 件）。</p>
+</section>
+
+</main>
+
+<footer>
+  <p>MIT · <a href="https://github.com/opaopa6969/haichi-engine">opaopa6969/haichi-engine</a></p>
+</footer>
+
+<script type="module" src="./demo.js"></script>
+</html>

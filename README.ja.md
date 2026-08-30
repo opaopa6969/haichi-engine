@@ -14,6 +14,13 @@ const report = measure(shapes, edges);
 //     metrics: { overlaps, overflow, unreadable, crossings, pierces, aspect } }
 ```
 
+## デモ
+
+**<https://opaopa6969.github.io/haichi-engine/>** — 壊れた配置と直した配置を並べて見られる。
+スライダーで幅を縮めると、何がどう壊れるかが数値で出る。3D の街も視点を動かせる。
+
+**このページはビルドしていない。**ブラウザが `index.js` をそのまま読んでいる（依存ゼロなので成立する）。
+
 ## 読むもの
 
 | | |

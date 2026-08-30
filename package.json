@@ -16,7 +16,7 @@
     "integration"
   ],
   "scripts": {
-    "test": "node test.mjs && node test3d.mjs && node integration/zumen-layout.test.mjs && node integration/game-board.test.mjs && node docs/examples.mjs && node docs/check-docs.mjs"
+    "test": "node test.mjs && node test3d.mjs && node integration/zumen-layout.test.mjs && node integration/game-board.test.mjs && node docs/examples.mjs && node docs/check-docs.mjs && node demo/smoke.mjs"
   },
   "keywords": [
     "layout",
