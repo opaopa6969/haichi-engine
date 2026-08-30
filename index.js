@@ -287,11 +287,53 @@ export function relax(items, opts = {}) {
  * shapes: [{ id, x, y, r? , w?, h?, label, font }]
  */
 export function placeLabels(shapes, opts = {}) {
-  const { minFont = 9, gap = 2, cw = 0.55, prefer = 'auto', allowInside = true, dirOrder = null } = opts;
+  const { minFont = 9, gap = 2, cw = 0.55, prefer = 'auto', allowInside = true, dirOrder = null,
+          obstacles = null, edges = null, bounds = null, avoidShapes = true } = opts;
   const out = new Map();
   const taken = [];
   // 方向の優先順。ゲームによっては「下→上→右→左」のような決まりがあるので差し替えられる
   const DIRS = dirOrder ?? [[0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+
+  // **ラベルは他のラベルだけでなく、図形そのものと辺も避ける。**
+  // 3 つの実地検証（tetsugo / volta-wm / design-catalog）が独立に同じことを要求した。
+  // 既定では入力の図形すべてを障害物にする（自分自身は除く）。
+  // 入力の図形（包含関係を考慮して除外しうる）と、外から明示的に渡された障害物を分ける。
+  // 後者は「そこには置くな」という指示なので、包んでいようが必ず避ける
+  const shapeObs = avoidShapes ? shapes : [];
+  const hardObs = obstacles ?? [];
+  const segs = (edges ?? []).map((e) => {
+    const a = typeof e.from === 'object' ? e.from : shapes.find((s) => s.id === e.from);
+    const b = typeof e.to === 'object' ? e.to : shapes.find((s) => s.id === e.to);
+    return a && b ? { a, b } : null;
+  }).filter(Boolean);
+
+  // 自分を包んでいる図形（親や、同心の大きい図形）は障害物ではない。
+  // 中に入れ子で置かれているのだから、その上に載るのは当たり前
+  const contains = (o, s) => {
+    const oe = o.r != null ? o.r : Math.max(o.w ?? 0, o.h ?? 0) / 2;
+    const se = s.r != null ? s.r : Math.max(s.w ?? 0, s.h ?? 0) / 2;
+    return oe > se && Math.hypot(o.x - s.x, o.y - s.y) + se <= oe + 1e-6;
+  };
+  const hitsObstacle = (box, self) => {
+    for (const o of shapeObs) {
+      if (o.id === self.id) continue;                // 自分の図形の上に載るのは正しい（inside）
+      if (contains(o, self)) continue;               // 自分を包む図形は避けない（入れ子は当たり前）
+      if (overlapOf(box, o, gap) > 0) return true;
+    }
+    for (const o of hardObs) if (overlapOf(box, o, gap) > 0) return true;
+    return false;
+  };
+  const hitsEdge = (box, selfId) => {
+    for (const { a, b } of segs) {
+      if (a.id === selfId || b.id === selfId) continue;   // 自分に繋がる辺は避けなくてよい
+      if (segRectHit(a, b, box)) return true;
+    }
+    return false;
+  };
+  const insideBounds = (box) => !bounds
+    || (Math.abs(box.x - bounds.x) + box.w / 2 <= bounds.w / 2 + 0.01
+     && Math.abs(box.y - bounds.y) + box.h / 2 <= bounds.h / 2 + 0.01);
+
   // 大きいものから置く。priority があればそちらを優先する（重要なラベルを先に確保する）
   const order = [...shapes].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (b.r ?? Math.max(b.w, b.h) / 2) - (a.r ?? Math.max(a.w, a.h) / 2));
   for (const s of order) {
@@ -306,17 +348,20 @@ export function placeLabels(shapes, opts = {}) {
     const th = font * 1.2;
     const ext = s.r != null ? s.r : Math.max(s.w, s.h) / 2;
     const cands = [];
-    if (fitsInside) cands.push({ dx: 0, dy: 0, text: s.label, tw: fullW, at: 'inside' });
-    for (const [dx, dy] of DIRS) cands.push({ dx, dy, text: s.label, tw: fullW, at: 'outside' });
-    let placed = null;
+    if (fitsInside) cands.push({ dx: 0, dy: 0, at: 'inside' });
+    for (const [dx, dy] of DIRS) cands.push({ dx, dy, at: 'outside' });
+    let placed = null, blockedBy = null;
     for (const c of cands) {
-      const x = s.x + c.dx * (ext + c.tw / 2 + gap), y = s.y + c.dy * (ext + th / 2 + gap);
-      const box = { x, y, w: c.tw, h: th };
-      if (taken.some((t) => rectOverlap(box, t, gap) > 0)) continue;
-      placed = { ...box, text: c.text, font, at: c.at };
+      const x = s.x + c.dx * (ext + fullW / 2 + gap), y = s.y + c.dy * (ext + th / 2 + gap);
+      const box = { id: s.id, x, y, w: fullW, h: th };
+      if (taken.some((t) => rectOverlap(box, t, gap) > 0)) { blockedBy ??= 'ラベル'; continue; }
+      if (c.at === 'outside' && hitsObstacle(box, s)) { blockedBy ??= '図形'; continue; }
+      if (c.at === 'outside' && hitsEdge(box, s.id)) { blockedBy ??= '辺'; continue; }
+      if (!insideBounds(box)) { blockedBy ??= '領域の外'; continue; }
+      placed = { ...box, text: s.label, font, at: c.at };
       break;
     }
-    if (!placed) { out.set(s.id, { hidden: true, why: `${cands.length} 方向すべてが埋まっている` }); continue; }
+    if (!placed) { out.set(s.id, { hidden: true, why: `${cands.length} 方向すべてが埋まっている（${blockedBy ?? '不明'}）` }); continue; }
     taken.push(placed);
     out.set(s.id, placed);
   }

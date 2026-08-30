@@ -410,4 +410,65 @@ ok('treemap は 16:9 に同値 4 件を 2x2 に割る', () => {
   assert.equal(ws.size, 1, '幅が揃っていない');
 });
 
+
+// --- ラベルが図形・辺・領域を避ける（tetsugo / volta-wm / design-catalog が独立に要求）
+
+ok('ラベルは他の図形の上に載らない', () => {
+  const S = [['A', 50, 50], ['B', 95, 50], ['C', 140, 50], ['D', 50, 95], ['E', 95, 95]]
+    .map(([n, x, y]) => ({ id: n, x, y, r: 10, label: `${n}駅`, font: 12 }));
+  const L = placeLabels(S, { minFont: 9 });
+  for (const [id, l] of L) {
+    if (l.hidden) continue;
+    for (const s of S) {
+      if (s.id === id) continue;
+      assert.ok(overlapOf({ x: l.x, y: l.y, w: l.w, h: l.h }, s, 0) <= 0, `${id} のラベルが ${s.id} に載った`);
+    }
+  }
+});
+
+ok('avoidShapes:false なら従来どおり図形を無視する', () => {
+  // 真上に別の図形を置く。避けるなら上以外へ回るはず
+  const S = [{ id: 'a', x: 0, y: 0, r: 10, label: 'あああ', font: 12 }, { id: 'b', x: 0, y: -26, r: 10 }];
+  const off = placeLabels(S, { avoidShapes: false });
+  const on = placeLabels(S, { avoidShapes: true });
+  assert.ok(!off.get('a').hidden);
+  // 避けるようにすると置き場所が変わる（または置けなくなる）
+  assert.ok(off.get('a').x !== on.get('a').x || off.get('a').y !== on.get('a').y || on.get('a').hidden,
+    '避けても同じ場所に置いた');
+});
+
+ok('外から渡した障害物も避ける', () => {
+  const S = [{ id: 'a', x: 0, y: 0, r: 8, label: 'ラベル', font: 12 }];
+  const box = { id: 'panel', x: 0, y: -20, w: 200, h: 24 };
+  const l = placeLabels(S, { obstacles: [box] }).get('a');
+  assert.ok(l.hidden || overlapOf({ x: l.x, y: l.y, w: l.w, h: l.h }, box, 0) <= 0, '障害物の上に置いた');
+});
+
+ok('辺を横切らない場所へ置く', () => {
+  const S = [
+    { id: 'p', x: 0, y: 0, r: 6, label: 'ぴー', font: 12 },
+    { id: 'q', x: 300, y: 0, r: 6 }, { id: 'r', x: 0, y: -60, r: 6 },
+  ];
+  // q→r の辺が p の上を通る位置にある
+  const l = placeLabels(S, { edges: [{ from: 'q', to: 'r' }] }).get('p');
+  assert.ok(!l.hidden, '置けなかった');
+});
+
+ok('bounds の外へラベルを出さない', () => {
+  const b = { x: 0, y: 0, w: 120, h: 120 };
+  const S = [{ id: 'a', x: 50, y: 0, r: 8, label: 'ながいなまえ', font: 12 }];
+  const l = placeLabels(S, { bounds: b }).get('a');
+  if (!l.hidden) {
+    assert.ok(Math.abs(l.x) + l.w / 2 <= b.w / 2 + 0.01, `領域外へ出た（x=${l.x.toFixed(1)} w=${l.w.toFixed(1)}）`);
+  }
+});
+
+ok('置けない理由を返す', () => {
+  const S = [{ id: 'a', x: 0, y: 0, r: 6, label: 'あ', font: 12 }];
+  const wall = { id: 'wall', x: 0, y: 0, w: 400, h: 400 };
+  const l = placeLabels(S, { obstacles: [wall], prefer: 'outside' }).get('a');
+  assert.ok(l.hidden, '囲まれているのに置けた');
+  assert.match(l.why, /図形|ラベル|辺|領域/);
+});
+
 console.error(`test: ${n} pass`);
