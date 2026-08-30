@@ -1,0 +1,16 @@
+{
+  "name": "haichi-engine",
+  "version": "0.0.0",
+  "description": "A tiny pure-geometry layout engine — packing, hierarchy, treemap, relaxation — plus a measurable quality report (overlap, label fit, legible font, crossings). Decides WHERE things go, never draws them. Feeds zumen / game-engine-suite. Dependency-free, deterministic, headless-testable.",
+  "type": "module",
+  "main": "index.js",
+  "exports": "./index.js",
+  "files": ["index.js"],
+  "scripts": {
+    "test": "node test.mjs && node integration/zumen-layout.test.mjs && node integration/game-board.test.mjs"
+  },
+  "keywords": ["layout", "packing", "treemap", "hierarchy", "relaxation", "label-placement", "quality", "diagram", "procedural", "deterministic"],
+  "license": "MIT",
+  "author": "opaopa6969",
+  "repository": { "type": "git", "url": "https://github.com/opaopa6969/haichi-engine.git" }
+}
