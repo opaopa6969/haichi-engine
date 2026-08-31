@@ -234,3 +234,172 @@ export function navigable(nav, opts = {}) {
                idealEntry: Math.min(T.scan, Math.max(T.compare, Math.round(Math.sqrt(total)))) },
   };
 }
+
+// ── 認知地図の作りやすさ（M ルール）
+//
+// **見た目の話ではない。** 街を歩いて「頭の中に地図ができるか」の話。
+// どこも同じ間隔で同じような建物が並んでいると、後で思い出せない。
+// 覚えられる街には、Lynch が挙げた 5 つの手掛かりがある。
+//
+//   path（道）      通る筋がある
+//   edge（縁）      川・線路・崖など、地区を分ける切れ目がある
+//   district（地区） 場所ごとに「らしさ」が違う
+//   node（結節点）  交差点や広場など、立ち止まる点がある
+//   landmark（目印） 遠くから見えて、位置を教えてくれるもの
+//
+// ここでは、そのうち **機械が数えられる 3 つ**（district の違い・landmark の見え方・
+// edge の一致）を測る。同じ型の地区が並んでいたら、それは覚えられない街だと言う。
+//
+//   M101 隣り合う地区は違う型であること（同型が隣接すると区別できない）
+//   M102 どこに立っても目印が 1 つは見えること
+//   M103 地区の特徴が互いに離れていること（似すぎた組を数える）
+//   M104 地区の境が、川や大通りといった切れ目と一致していること
+
+/**
+ * 地区の「特徴ベクトル」。似ている地区は覚え分けられない。
+ * @param {object} d {buildings:[{w,d,height}], trees:number, area:number, roofs:{...}}
+ * @returns {number[]} 0..1 に正規化した特徴
+ */
+export function districtSignature(d) {
+  const bs = d.buildings ?? [];
+  const n = Math.max(1, bs.length);
+  const med = (xs) => { const a = [...xs].sort((p, q) => p - q); return a.length ? a[a.length >> 1] : 0; };
+  const hs = bs.map((b) => b.height ?? 0);
+  const foot = bs.map((b) => (b.w ?? 0) * (b.d ?? 0));
+  const area = Math.max(1, d.area ?? 1);
+  const built = foot.reduce((a, v) => a + v, 0) / area;              // 建蔽率
+  const green = (d.trees ?? 0) / (area / 1000);                       // 木の密度
+  const aspect = bs.length ? bs.reduce((a, b) => a + Math.min(b.w, b.d) / Math.max(1e-6, Math.max(b.w, b.d)), 0) / n : 1;
+  const roofs = d.roofs ?? {};
+  // 大きさのばらつき。**同じ大きさの箱が並ぶ町は覚えられない**（変動係数）
+  const mw = foot.reduce((a, v) => a + v, 0) / n;
+  const sd = Math.sqrt(foot.reduce((a, v) => a + (v - mw) ** 2, 0) / n);
+  const spread = mw ? sd / mw : 0;
+  // まばらさ。建物の大きさに対して、どれだけ離れて建っているか
+  const sparse = (d.spacing ?? 0) / Math.max(1, Math.sqrt(mw));
+  // 地面と看板は「見た目の話」ではなく、**そこがどこかを思い出す手掛かり**そのもの。
+  // 砂の道・石畳・ネオン・のれん は、高さや密度と同じくらい強い記憶の鍵になる。
+  const GROUND = { asphalt: 0.0, concrete: 0.25, stone: 0.5, soil: 0.75, sand: 1.0 };
+  const SIGN = { none: 0.0, plate: 0.3, banner: 0.6, scrawl: 0.8, neon: 1.0 };
+  return [
+    clamp01(med(hs) / 30),          // 高さ（10 階 = 30 m を上限に）
+    clamp01(built * 2.2),           // 建蔽率
+    clamp01(green / 12),            // 緑の多さ
+    clamp01(aspect),                // 真四角さ（1 に近いほど正方形）
+    clamp01(roofs.flat ?? 0),       // 陸屋根の割合
+    clamp01((roofs.gable ?? 0) + (roofs.hip ?? 0)), // 勾配屋根の割合
+    clamp01((roofs.shed ?? 0) + (roofs.saw ?? 0)),  // 片流れ・鋸屋根の割合
+    clamp01(spread),                // 大きさのばらつき
+    clamp01(sparse / 3),            // まばらさ
+    GROUND[d.ground] ?? 0,          // 地面
+    SIGN[d.signage] ?? 0,           // 看板
+    // **坂かどうかは強い手掛かり。** 「坂の上の家」と「平地の家」は、
+    // 建物が同じでも別の場所として覚えられる。
+    d.slope ? 1 : 0,
+  ];
+}
+function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : Number.isFinite(v) ? v : 0; }
+
+function sigDist(a, b) {
+  let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2;
+  return Math.sqrt(s / a.length);
+}
+
+/**
+ * 認知地図の作りやすさを測る。
+ * @param {object} city
+ *   districts [{id, kind, x, z, w, d, buildings, trees, area, roofs}]
+ *   adjacency [[idA, idB], ...]（隣接。無ければ矩形の近さから作る）
+ *   landmarks [{x, z, height}]（尖塔・塔・大きな建物など、遠くから見えるもの）
+ *   edges     [{x0,z0,x1,z1}]（川・線路・大通りなど、地区を分ける切れ目）
+ * @param {object} opts sameKindMax（同型隣接の許容割合）, sightRange（目印が見える距離）,
+ *                      minSigDist（地区が別物と言える特徴の距離）, samples（立ってみる点の数）
+ * @returns {{ sameKindAdj, twinPairs, landmarkCoverage, edgeAlignment, score, issues }}
+ */
+export function mapability(city, opts = {}) {
+  const { sameKindMax = 0.25, sightRange = 400, minSigDist = 0.18, samples = 200 } = opts;
+  const ds = city.districts ?? [];
+  const issues = [];
+
+  // M101 隣り合う地区が同じ型か
+  let adj = city.adjacency;
+  if (!adj) {
+    adj = [];
+    for (let i = 0; i < ds.length; i++) for (let j = i + 1; j < ds.length; j++) {
+      const a = ds[i], b = ds[j];
+      const gx = Math.abs(a.x - b.x) - (a.w + b.w) / 2;
+      const gz = Math.abs(a.z - b.z) - (a.d + b.d) / 2;
+      if (Math.max(gx, gz) < Math.max(a.w, a.d) * 0.35) adj.push([a.id, b.id]);
+    }
+  }
+  const byId = new Map(ds.map((d) => [d.id, d]));
+  let same = 0;
+  for (const [x, y] of adj) if (byId.get(x)?.kind && byId.get(x).kind === byId.get(y)?.kind) same++;
+  const sameKindAdj = adj.length ? same / adj.length : 0;
+  if (sameKindAdj > sameKindMax) issues.push({ rule: 'M101', msg: `同じ型の地区が隣り合いすぎ（${(sameKindAdj * 100).toFixed(0)}%）。歩いて景色が変わらないので覚えられない`, value: sameKindAdj });
+
+  // M103 似すぎた地区の組
+  const sigs = ds.map((d) => ({ id: d.id, sig: districtSignature(d) }));
+  const twins = [];
+  for (let i = 0; i < sigs.length; i++) for (let j = i + 1; j < sigs.length; j++) {
+    const dd = sigDist(sigs[i].sig, sigs[j].sig);
+    if (dd < minSigDist) twins.push([sigs[i].id, sigs[j].id, Number(dd.toFixed(3))]);
+  }
+  if (twins.length) issues.push({ rule: 'M103', msg: `見分けのつかない地区の組が ${twins.length} 組。高さ・密度・緑・屋根のどれかを変える`, value: twins.length });
+
+  // M102 目印の見え方。街の上に点を撒いて、そこから見える目印を数える
+  const lm = city.landmarks ?? [];
+  let covered = 0, sum = 0;
+  const bb = bounds(ds);
+  for (let i = 0; i < samples; i++) {
+    const t1 = frac(i * 0.7548776662), t2 = frac(i * 0.5698402909);
+    const x = bb.x0 + t1 * (bb.x1 - bb.x0), z = bb.z0 + t2 * (bb.z1 - bb.z0);
+    let seen = 0;
+    for (const l of lm) {
+      const dist = Math.hypot(l.x - x, l.z - z);
+      // 高いものほど遠くから見える
+      if (dist < sightRange * (0.5 + (l.height ?? 10) / 30)) seen++;
+    }
+    sum += seen; if (seen > 0) covered++;
+  }
+  const landmarkCoverage = samples ? covered / samples : 0;
+  if (landmarkCoverage < 0.85) issues.push({ rule: 'M102', msg: `目印が見えない場所が ${((1 - landmarkCoverage) * 100).toFixed(0)}%。塔・尖塔など遠くから見えるものを増やす`, value: landmarkCoverage });
+
+  // M104 地区の境が切れ目と一致しているか
+  const eds = city.edges ?? [];
+  let aligned = 0, borders = 0;
+  for (const [x, y] of adj) {
+    const a = byId.get(x), b = byId.get(y); if (!a || !b) continue;
+    borders++;
+    const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+    for (const e of eds) {
+      if (pointToSeg(mx, mz, e) < Math.max(a.w, a.d) * 0.3) { aligned++; break; }
+    }
+  }
+  const edgeAlignment = borders ? aligned / borders : 0;
+  if (eds.length && edgeAlignment < 0.4) issues.push({ rule: 'M104', msg: `地区の境に川や大通りが無い（${(edgeAlignment * 100).toFixed(0)}%）。切れ目が無いと境目を覚えられない`, value: edgeAlignment });
+
+  const score = clamp01(
+    (1 - sameKindAdj) * 0.3 + landmarkCoverage * 0.35
+    + clamp01(1 - twins.length / Math.max(1, ds.length)) * 0.2 + edgeAlignment * 0.15,
+  );
+  return { sameKindAdj, twinPairs: twins, landmarkCoverage, avgLandmarksInSight: samples ? sum / samples : 0, edgeAlignment, score, issues };
+}
+
+function frac(v) { return v - Math.floor(v); }
+function bounds(ds) {
+  if (!ds.length) return { x0: 0, z0: 0, x1: 1, z1: 1 };
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const d of ds) {
+    x0 = Math.min(x0, d.x - d.w / 2); x1 = Math.max(x1, d.x + d.w / 2);
+    z0 = Math.min(z0, d.z - d.d / 2); z1 = Math.max(z1, d.z + d.d / 2);
+  }
+  return { x0, z0, x1, z1 };
+}
+function pointToSeg(x, z, e) {
+  const vx = e.x1 - e.x0, vz = e.z1 - e.z0;
+  const l2 = vx * vx + vz * vz;
+  let t = l2 ? ((x - e.x0) * vx + (z - e.z0) * vz) / l2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(x - (e.x0 + vx * t), z - (e.z0 + vz * t));
+}

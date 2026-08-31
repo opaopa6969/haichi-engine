@@ -243,7 +243,7 @@ ZIR（描画非依存の JSON）を入れ子に畳み、配置と測定を返す
 
 ## 状態
 
-v0.2.0。2D 71 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 認知 21 / 集約 14 / 文書の実行 11 / 文書の整合 5 の計 180 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
+v0.3.0。2D 71 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 認知 21 / 集約 14 / 町 29 / 地形 16 / 植生 13 / 認知地図 14 / 文書の実行 11 / 文書の整合 5 の計 252 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
 
 ```
 npm test
@@ -252,3 +252,33 @@ npm test
 ## License
 
 MIT
+
+## 町・地形・植生（v0.3.0）
+
+格子に等間隔で並べると、どこも同じ景色になって**頭の中に地図ができない**。
+覚えられる街には Lynch の 5 つ（道・縁・地区・結節点・目印）が要る。ここではそのうち
+機械が扱える部分を作る。
+
+| module | 何をするか |
+|---|---|
+| `haichi-engine/town` | 建物を町のように置く。`rows`（街区）/ `ribbon`（宿場町）/ `scatter`（田園・山間）/ `radial`（環状＋放射）/ `organic`（曲がりくねる）/ `riverine`（川沿い）の 6 通り |
+| `haichi-engine/terrain` | fBm と稜線ノイズで丘と山。川筋を引いて谷を掘る。町の敷地だけ平らにする |
+| `haichi-engine/greenery` | 庭木・街路樹・公園・山林の 4 通りの生え方。建物と道の上には生やさない |
+| `haichi-engine/districts` | 地区の型 12 種（繁華街・住宅街・オフィス街・田園都市・港湾・工場・山岳・海辺・宿場町・スラム・高級住宅街・高台）。`town/greenery/terrain` の引数一式と、階数・屋根の分布を返す |
+| `cognitive.mapability()` | **覚えられる街かを測る。** 同型の地区が隣り合っていないか、どこからでも目印が見えるか、地区どうしが見分けられるか、地区の境に川や大通りがあるか |
+
+規則は T101–T106（町）、R101–R105（地形）、G101–G105（植生）、M101–M104（認知地図）。
+
+```js
+import { town } from 'haichi-engine/town';
+import { districtParams, buildingStyle } from 'haichi-engine/districts';
+import { mapability } from 'haichi-engine/cognitive';
+
+const p = districtParams('post_town');          // 山間の宿場町
+const t = town(items, { w: 600, d: 600, ...p.town });
+// t.placed: id → {x, z, w, d}  t.streets: 道  t.lots: 空き地（公園にする）
+```
+
+`mapability()` は「見た目の良し悪し」ではなく **後で思い出せるか** を測る。
+同じ型の地区を並べると M101 が指摘し、地区の特徴が近すぎると M103 が組を挙げる。
+実際、最初に作った 12 型のうち 6 組は互いに区別できず、この検査で見つかった。

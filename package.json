@@ -1,7 +1,7 @@
 {
   "name": "haichi-engine",
-  "version": "0.2.0",
-  "description": "A tiny pure engine for making large structures viewable — cluster (what counts as one), place (2D/3D), and measure (is it readable). Decides WHERE things go and WHAT is one thing, never draws them. Dependency-free, deterministic, headless-testable.",
+  "version": "0.3.0",
+  "description": "A tiny pure engine for making large structures viewable and memorable — cluster, place (2D/3D/town), shape terrain, plant greenery, and measure whether it is readable and mappable. Decides WHERE things go, never draws them. Dependency-free, deterministic, headless-testable.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -11,17 +11,25 @@
     "./zumen": "./integration/zumen-layout.mjs",
     "./web": "./integration/web.mjs",
     "./cognitive": "./cognitive.js",
-    "./cluster": "./cluster.js"
+    "./cluster": "./cluster.js",
+    "./town": "./town.js",
+    "./terrain": "./terrain.js",
+    "./greenery": "./greenery.js",
+    "./districts": "./districts.js"
   },
   "files": [
     "index.js",
     "index3d.js",
     "cognitive.js",
     "cluster.js",
-    "integration"
+    "integration",
+    "town.js",
+    "terrain.js",
+    "greenery.js",
+    "districts.js"
   ],
   "scripts": {
-    "test": "node test.mjs && node test3d.mjs && node integration/zumen-layout.test.mjs && node integration/game-board.test.mjs && node integration/web.test.mjs && node integration/cognitive.test.mjs && node integration/cluster.test.mjs && node docs/examples.mjs && node docs/check-docs.mjs && node demo/smoke.mjs"
+    "test": "node test.mjs && node test3d.mjs && node integration/zumen-layout.test.mjs && node integration/game-board.test.mjs && node integration/web.test.mjs && node integration/cognitive.test.mjs && node integration/cluster.test.mjs && node town.test.mjs && node terrain.test.mjs && node greenery.test.mjs && node mapability.test.mjs && node docs/examples.mjs && node docs/check-docs.mjs && node demo/smoke.mjs"
   },
   "keywords": [
     "layout",
@@ -33,7 +41,14 @@
     "quality",
     "diagram",
     "procedural",
-    "deterministic"
+    "deterministic",
+    "town",
+    "procedural-city",
+    "terrain",
+    "fractal",
+    "vegetation",
+    "wayfinding",
+    "cognitive-map"
   ],
   "license": "MIT",
   "author": "opaopa6969",
