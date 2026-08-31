@@ -20,6 +20,30 @@
 // 何をその地区に割り当てるかは呼ぶ側が決める（このエンジンは意味を知らない）。
 //
 // 単位はメートル。
+//
+// ## 数字の出どころ（2026-09 実測）
+// OSM と PLATEAU から実際の日本の町を測った（千代田区神田 1.00km²/2,551 棟、
+// 高松市中心部 3.05km²/4,933 棟、徳島県阿波市 4.08km²/513 棟）。
+//
+//   底面積の中央値      82.8 / 77.4 / 97.9 m²（長辺 12.4 短辺 6.9 m）
+//   アスペクト比 中央値  1.71 / 1.59 / 1.50 ← **真四角は 16〜21% しかない**
+//   最近傍の建物まで     0.68 / 0.32 / 1.99 m ← 都市部はほぼ接している
+//   5 m 以上あく割合     1.3% / 5.3% / 19.9%
+//   街路への整列         91.9% / 95.7% / 57.3% が最寄り車道と 10° 以内
+//   交差点の間隔         39.6 / 36.0 / 80.7 m
+//   街区の面積           1,143 / 1,998 / 12,920 m²、1 街区の建物数 6 / 3 / 0
+//   車道の幅             4.6 m（中央値）
+//   緑地＋駐車場の面積率  1.93% / 11.50% / 0.84%
+//   建物の高さ（PLATEAU 千代田 2,473 棟）中央値 21.4 m、最大 164.6 m
+//
+// **アスペクト比と整列率はそのまま採った。** 真四角の箱を等間隔に並べると
+// 日本の町に見えないのは、この 2 つが実際と違うからだった。
+//
+// **隙間だけは実測を採らない。** 実際の都市部は 0.3〜0.7 m しかあかず、
+// そのまま作ると歩いて通れない（measure3 の V102 が跳ね上がる）。
+// ここは「歩ける街」を優先して 5 m を下限にする。実物の約 10 倍で、意図的な嘘。
+//
+// 屋根の形は PLATEAU の b3dm に属性が無く判別できなかったので、割合は推定のまま。
 
 /** 屋根の形の割合。合計 1。flat=陸屋根 gable=切妻 hip=寄棟 shed=片流れ saw=鋸屋根 */
 const ROOFS = {
@@ -37,15 +61,16 @@ export const DISTRICTS = {
   downtown: {
     label: '繁華街',
     spacing: 5,
-    town: { minSize: 6, maxSize: 34, gap: 5, street: 11, avenueEvery: 3, emptyLotRate: 0.03, aspectRange: [0.35, 0.8], setbackSigma: 1.2 },
+    town: { minSize: 6, maxSize: 34, gap: 5, street: 9, avenueEvery: 3, emptyLotRate: 0.03, aspectRange: [0.28, 0.72], setbackSigma: 2.0 },
     greenery: { gardenPer: 0, avenueMin: 18, streetSpacing: 14, parkDensity: 1 / 60, grassCount: 400 },
-    levels: { 3: 0.16, 4: 0.2, 5: 0.18, 6: 0.14, 7: 0.1, 8: 0.09, 9: 0.07, 10: 0.06 },
+    // 千代田の実測（2 階 15% / 5 階 14% / 8 階 11% / 9 階 10% / 7 階 10% / 6 階 9%）を 10 階までに畳んだもの
+    levels: { 2: 0.15, 3: 0.09, 4: 0.08, 5: 0.14, 6: 0.09, 7: 0.10, 8: 0.11, 9: 0.10, 10: 0.14 },
     roofs: ROOFS.urban, signage: 'neon', ground: 'asphalt',
   },
   residential: {
     label: '住宅街',
     spacing: 7,
-    town: { minSize: 5, maxSize: 14, gap: 5, street: 8, avenueEvery: 5, emptyLotRate: 0.1, aspectRange: [0.7, 1.5], setbackSigma: 2.4 },
+    town: { minSize: 5, maxSize: 14, gap: 5, street: 7, avenueEvery: 5, emptyLotRate: 0.1, aspectRange: [0.38, 0.85], setbackSigma: 4.3 },
     greenery: { gardenPer: 3, avenueMin: 12, streetSpacing: 16, parkDensity: 1 / 70, grassCount: 3000 },
     levels: { 1: 0.34, 2: 0.52, 3: 0.14 },
     roofs: ROOFS.house, signage: 'none', ground: 'asphalt',
@@ -53,7 +78,7 @@ export const DISTRICTS = {
   office: {
     label: 'オフィスビル街',
     spacing: 16,
-    town: { minSize: 18, maxSize: 50, gap: 12, street: 18, avenueEvery: 2, emptyLotRate: 0.08, aspectRange: [0.85, 1.2], setbackSigma: 0.6 },
+    town: { minSize: 18, maxSize: 50, gap: 12, street: 18, avenueEvery: 2, emptyLotRate: 0.08, aspectRange: [0.62, 1.05], setbackSigma: 0.6 },
     greenery: { gardenPer: 1, avenueMin: 16, streetSpacing: 15, parkDensity: 1 / 55, grassCount: 1200 },
     levels: { 5: 0.12, 6: 0.14, 7: 0.16, 8: 0.2, 9: 0.18, 10: 0.2 },
     roofs: ROOFS.urban, signage: 'plate', ground: 'stone',
@@ -61,7 +86,7 @@ export const DISTRICTS = {
   garden_city: {
     label: '田園都市',
     spacing: 40,
-    town: { mode: 'scatter', minSize: 6, maxSize: 20, gap: 5, scatterGap: 38, street: 7, emptyLotRate: 0.3, aspectRange: [0.6, 1.6] },
+    town: { mode: 'scatter', minSize: 6, maxSize: 20, gap: 5, scatterGap: 38, street: 7, emptyLotRate: 0.3, aspectRange: [0.4, 0.9] },
     greenery: { gardenPer: 5, avenueMin: 6, streetSpacing: 22, parkDensity: 1 / 40, grassCount: 9000, clearance: 3.5 },
     levels: { 1: 0.56, 2: 0.4, 3: 0.04 },
     roofs: ROOFS.farm, signage: 'none', ground: 'soil',
@@ -85,7 +110,7 @@ export const DISTRICTS = {
   mountain: {
     label: '山岳地帯',
     spacing: 58,
-    town: { mode: 'scatter', minSize: 5, maxSize: 16, gap: 5, scatterGap: 55, street: 6, aspectRange: [0.7, 1.4] },
+    town: { mode: 'scatter', minSize: 5, maxSize: 16, gap: 5, scatterGap: 55, street: 6, aspectRange: [0.55, 1.0] },
     greenery: { gardenPer: 2, avenueMin: 6, streetSpacing: 26, parkDensity: 1 / 40, grassCount: 6000, forestLine: 0.8, treeCap: 6000 },
     levels: { 1: 0.82, 2: 0.18 },
     roofs: ROOFS.old, signage: 'none', ground: 'stone',
