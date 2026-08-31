@@ -39,9 +39,13 @@
 // **アスペクト比と整列率はそのまま採った。** 真四角の箱を等間隔に並べると
 // 日本の町に見えないのは、この 2 つが実際と違うからだった。
 //
-// **隙間だけは実測を採らない。** 実際の都市部は 0.3〜0.7 m しかあかず、
-// そのまま作ると歩いて通れない（measure3 の V102 が跳ね上がる）。
-// ここは「歩ける街」を優先して 5 m を下限にする。実物の約 10 倍で、意図的な嘘。
+// **隙間は用途で選ぶ（realism）。**
+// 実際の都市部は 0.3〜0.7 m しかあかない。それでも町として成立しているのは、
+// 隙間ではなく **道が全部の建物に届いている**から（建築基準法 43 条: 幅 4 m 以上の
+// 道路に 2 m 以上接すること）。守るべき不変条件は隙間ではなく接道のほう。
+//   realism: 'real'     … 実測どおり詰める（下町。肩がぶつかる路地）
+//   realism: 'walkable' … 建物どうしも 5 m 空ける（街を歩き回るのが目的のとき。既定）
+// どちらでも T107（全戸が幅 4 m 以上の道に接する）は必ず守る。
 //
 // 屋根の形は PLATEAU の b3dm に属性が無く判別できなかったので、割合は推定のまま。
 
@@ -58,7 +62,10 @@ const ROOFS = {
 };
 
 export const DISTRICTS = {
+  // 新しく作った町は道も敷地も余裕がある。古い下町ほど詰まっている。
+  // realism を型ごとの既定として持たせる（呼ぶ側が上書きできる）。
   downtown: {
+    realism: 'real',
     label: '繁華街',
     spacing: 5,
     town: { minSize: 6, maxSize: 34, gap: 5, street: 9, avenueEvery: 3, emptyLotRate: 0.03, aspectRange: [0.28, 0.72], setbackSigma: 2.0 },
@@ -68,6 +75,7 @@ export const DISTRICTS = {
     roofs: ROOFS.urban, signage: 'neon', ground: 'asphalt',
   },
   residential: {
+    realism: 'walkable',
     label: '住宅街',
     spacing: 7,
     town: { minSize: 5, maxSize: 14, gap: 5, street: 7, avenueEvery: 5, emptyLotRate: 0.1, aspectRange: [0.38, 0.85], setbackSigma: 4.3 },
@@ -76,6 +84,7 @@ export const DISTRICTS = {
     roofs: ROOFS.house, signage: 'none', ground: 'asphalt',
   },
   office: {
+    realism: 'walkable',
     label: 'オフィスビル街',
     spacing: 16,
     town: { minSize: 18, maxSize: 50, gap: 12, street: 18, avenueEvery: 2, emptyLotRate: 0.08, aspectRange: [0.62, 1.05], setbackSigma: 0.6 },
@@ -84,6 +93,7 @@ export const DISTRICTS = {
     roofs: ROOFS.urban, signage: 'plate', ground: 'stone',
   },
   garden_city: {
+    realism: 'walkable',
     label: '田園都市',
     spacing: 40,
     town: { mode: 'scatter', minSize: 6, maxSize: 20, gap: 5, scatterGap: 38, street: 7, emptyLotRate: 0.3, aspectRange: [0.4, 0.9] },
@@ -92,6 +102,7 @@ export const DISTRICTS = {
     roofs: ROOFS.farm, signage: 'none', ground: 'soil',
   },
   port: {
+    realism: 'walkable',
     label: '港湾地区',
     spacing: 12,
     town: { minSize: 16, maxSize: 50, gap: 10, street: 22, avenueEvery: 3, emptyLotRate: 0.14, aspectRange: [0.4, 2.2], setbackSigma: 1.0 },
@@ -100,6 +111,7 @@ export const DISTRICTS = {
     roofs: ROOFS.dock, signage: 'banner', ground: 'stone', water: 'sea',
   },
   factory: {
+    realism: 'walkable',
     label: '工場地帯',
     spacing: 11,
     town: { minSize: 20, maxSize: 50, gap: 9, street: 20, avenueEvery: 3, emptyLotRate: 0.1, aspectRange: [0.5, 2.0], setbackSigma: 0.8 },
@@ -108,6 +120,7 @@ export const DISTRICTS = {
     roofs: ROOFS.works, signage: 'plate', ground: 'concrete',
   },
   mountain: {
+    realism: 'walkable',
     label: '山岳地帯',
     spacing: 58,
     town: { mode: 'scatter', minSize: 5, maxSize: 16, gap: 5, scatterGap: 55, street: 6, aspectRange: [0.55, 1.0] },
@@ -118,6 +131,7 @@ export const DISTRICTS = {
     terrain: { maxHeight: 520, flatFeather: 260 },
   },
   seaside: {
+    realism: 'walkable',
     label: '海辺の地区',
     spacing: 9,
     town: { minSize: 5, maxSize: 18, gap: 6, street: 9, avenueEvery: 4, emptyLotRate: 0.16, aspectRange: [0.6, 1.6], setbackSigma: 2.0 },
@@ -127,6 +141,7 @@ export const DISTRICTS = {
     terrain: { maxHeight: 90 },
   },
   post_town: {
+    realism: 'real',
     label: '山間の宿場町',
     spacing: 5,
     town: { mode: 'ribbon', minSize: 5, maxSize: 16, gap: 5, street: 9, aspectRange: [0.3, 0.7] },
@@ -137,6 +152,7 @@ export const DISTRICTS = {
     terrain: { maxHeight: 430, flatFeather: 200 },
   },
   slum: {
+    realism: 'real',
     label: 'スラム街',
     spacing: 5,
     town: { minSize: 5, maxSize: 9, gap: 5, street: 6, avenueEvery: 8, emptyLotRate: 0.05, aspectRange: [0.5, 1.8], setbackSigma: 3.2 },
@@ -145,6 +161,7 @@ export const DISTRICTS = {
     roofs: ROOFS.shack, signage: 'scrawl', ground: 'soil',
   },
   affluent: {
+    realism: 'walkable',
     label: '高級住宅街',
     spacing: 20,
     town: { minSize: 14, maxSize: 34, gap: 16, street: 12, avenueEvery: 4, emptyLotRate: 0.16, aspectRange: [0.7, 1.4], setbackSigma: 5.0 },
@@ -153,6 +170,7 @@ export const DISTRICTS = {
     roofs: ROOFS.house, signage: 'none', ground: 'stone',
   },
   hilltop: {
+    realism: 'walkable',
     label: '海を見渡せる高台の家',
     spacing: 32,
     town: { mode: 'scatter', minSize: 10, maxSize: 30, gap: 5, scatterGap: 30, street: 8, aspectRange: [0.6, 1.8] },
@@ -172,12 +190,13 @@ export function districtParams(kind, over = {}) {
   if (!d) throw new Error(`知らない地区の型: ${kind}`);
   return {
     label: d.label,
-    town: { ...d.town, ...(over.town ?? {}) },
+    town: { realism: over.realism ?? d.realism ?? 'walkable', ...d.town, ...(over.town ?? {}) },
     greenery: { ...d.greenery, ...(over.greenery ?? {}) },
     terrain: { ...(d.terrain ?? {}), ...(over.terrain ?? {}) },
     levels: d.levels, roofs: d.roofs,
     signage: d.signage, ground: d.ground, water: d.water ?? null,
     slope: !!d.slope, faceView: !!d.faceView, spacing: d.spacing ?? 8,
+    realism: over.realism ?? d.realism ?? 'walkable',
   };
 }
 

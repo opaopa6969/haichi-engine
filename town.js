@@ -19,6 +19,17 @@
 //   T104 壁面線は揃えない（セットバックを建物ごとに散らす）
 //   T105 同じ入力・同じ seed なら同じ町になる（決定論）
 //   T106 敷地に入りきらないぶんは奥へ伸ばす（切り捨てない）
+//   T107 **どの建物も、幅 minRoad 以上の道に接する**（接道義務）
+//
+// ## 隙間か、接道か
+// 日本の実測では建物どうしの隙間は 0.3〜2 m しかない（千代田 0.68 / 高松 0.32 / 阿波 1.99 m）。
+// それでも町として成立しているのは、**隙間ではなく道が全部の建物に届いている**から。
+// 建築基準法も「幅 4 m 以上の道路に 2 m 以上接すること」を求めていて、守っているのは
+// 建物どうしの距離ではなく接道のほうだ。
+//
+// なので不変条件は接道（T107）に置き、隙間は用途で選ぶ:
+//   realism: 'real'     … 実測どおり詰める（下町。肩がぶつかる路地）
+//   realism: 'walkable' … 建物どうしも空ける（歩き回るのが目的のとき。既定）
 
 // 決定論の擬似乱数。seed と添字から作る（Math.random は使わない）
 function rnd(seed, i) {
@@ -45,10 +56,15 @@ function rnd(seed, i) {
  *   lots: 空き地 {x, z, w, d}（公園や広場に使える）
  */
 export function town(items, {
-  w = 1000, d = 1000, minSize = 5, maxSize = 50, gap = 5, street = 8,
+  w = 1000, d = 1000, minSize = 5, maxSize = 50, gap: gapIn = 5, street: streetIn = 8,
   avenueEvery = 4, emptyLotRate = 0.07, seed = 1, sizeOf = (it) => it.value ?? 1,
   mode = 'rows', aspectRange = [0.6, 1.7], setbackSigma = null, scatterGap = null, spine = null,
+  realism = 'walkable', realGap = 0.6, minRoad = 4,
 } = {}) {
+  // 'real' は実測どおり詰める。ただし道は minRoad（既定 4 m）を下回らせない（T107）
+  let gap = gapIn, street = streetIn;
+  if (realism === 'real') { gap = Math.max(realGap, 0.3); street = Math.max(street, minRoad); }
+  else street = Math.max(street, minRoad);
   const list = [...items];
   if (!list.length) return { placed: new Map(), streets: [], lots: [], w, d, rows: 0 };
 
@@ -79,13 +95,13 @@ export function town(items, {
   //    ribbon  … 一本の街道の両側に連なる（宿場町・門前町）
   //    scatter … 道からも隣からも離れてまばらに建つ（田園・山間・高台）
   if (mode === 'ribbon') return ribbon(order, { w, d, gap, street, seed, minSize });
-  if (mode === 'scatter') return scatter(order, { w, d, gap: scatterGap ?? gap * 6, street, seed });
+  if (mode === 'scatter') return scatter(order, { w, d, gap: scatterGap ?? gap * 6, street, seed, minRoad });
   //    radial  … 広場を中心に環状道路＋放射道路（城下町・ヨーロッパの旧市街）
   //    organic … 曲がりくねった道に沿う（自然発生した町・スラム・山道）
   //    riverine… 川筋に沿って両岸に伸びる（河岸段丘の町）
-  if (mode === 'radial') return alongCurves(order, radialCurves(w, d, seed), { w, d, gap, street, seed });
-  if (mode === 'organic') return alongCurves(order, organicCurves(w, d, seed), { w, d, gap, street, seed });
-  if (mode === 'riverine') return alongCurves(order, riverCurves(w, d, seed, spine), { w, d, gap, street, seed });
+  if (mode === 'radial') return alongCurves(order, radialCurves(w, d, seed), { w, d, gap, street, seed, minRoad });
+  if (mode === 'organic') return alongCurves(order, organicCurves(w, d, seed), { w, d, gap, street, seed, minRoad });
+  if (mode === 'riverine') return alongCurves(order, riverCurves(w, d, seed, spine), { w, d, gap, street, seed, minRoad });
 
   const placed = new Map(); const streets = []; const lots = [];
   let z = street;           // いちばん手前に通りを 1 本
@@ -134,7 +150,8 @@ export function town(items, {
     z += depth;
     row++;
     // 4) 次の通り。数本に 1 本は大通り（T103）
-    const wide = row % avenueEvery === 0 ? street * 2.2 : street * (0.85 + rnd(seed, row * 29) * 0.5);
+    // **細い側も minRoad を下回らせない。** 揺らぎで 4 m を割ると接道義務を満たさない道になる
+    const wide = Math.max(minRoad, row % avenueEvery === 0 ? street * 2.2 : street * (0.85 + rnd(seed, row * 29) * 0.5));
     streets.push({ x0: 0, z0: z + wide / 2, x1: w, z1: z + wide / 2, w: wide });
     z += wide;
   }
@@ -142,7 +159,7 @@ export function town(items, {
   for (let k = 1, x = 0; k < 40; k++) {
     x += w / 6 * (0.6 + rnd(seed, k * 37) * 0.9);
     if (x > w - street) break;
-    streets.push({ x0: x, z0: 0, x1: x, z1: z, w: street * (0.7 + rnd(seed, k * 41) * 0.6) });
+    streets.push({ x0: x, z0: 0, x1: x, z1: z, w: Math.max(minRoad, street * (0.7 + rnd(seed, k * 41) * 0.6)) });
   }
   return { placed, streets, lots, w, d: Math.max(d, z), rows: row };
 }
@@ -178,7 +195,7 @@ function ribbon(order, { w, d, gap, street, seed, minSize }) {
 
 // まばらに建つ（田園・山間・高台）。**道に面していなくてよい。**
 // 互いに gap 以上離れるよう、poisson 風に間引いて置く。
-function scatter(order, { w, d, gap, street, seed }) {
+function scatter(order, { w, d, gap, street, seed, minRoad = 4 }) {
   const placed = new Map(); const lots = [];
   const streets = [];
   // 曲がりくねった 1 本道（等間隔の格子にしない）
@@ -207,6 +224,20 @@ function scatter(order, { w, d, gap, street, seed }) {
     if (!ok) { dd += gap * 4; i--; }                  // 入らなければ奥へ伸ばす（T106）
     if (dd > d * 40) break;                           // 保険
   }
+  // **一軒ずつ私道を引く（T107）。** まばらに建てると本道から遠く離れ、
+  // 道の届かない家ができる（実測 126/150 が接道なし、最遠 703 m）。
+  // 実際の農村もそうしていて、本道から各戸へ私道が伸びている。
+  const trunk = [...streets];
+  for (const b of put) {
+    let best = null, bd2 = Infinity;
+    for (const r of trunk) {
+      const p = nearestOn(r, b.x, b.z);
+      const dd2 = Math.hypot(p.x - b.x, p.z - b.z);
+      if (dd2 < bd2) { bd2 = dd2; best = p; }
+    }
+    if (!best || bd2 < Math.max(b.w, b.d) / 2 + 2) continue;
+    streets.push({ x0: best.x, z0: best.z, x1: b.x, z1: b.z, w: minRoad });
+  }
   return { placed, streets, lots, w, d: dd, rows: Math.ceil(dd / Math.max(1, gap * 3)) };
 }
 
@@ -232,7 +263,7 @@ function walkCurve(pts, step) {
   return out;
 }
 
-function alongCurves(order, curves, { w, d, gap, street, seed }) {
+function alongCurves(order, curves, { w, d, gap, street, seed, minRoad = 4 }) {
   const placed = new Map(); const lots = []; const streets = [];
   for (const c of curves) {
     for (let i = 1; i < c.pts.length; i++)
@@ -267,7 +298,25 @@ function alongCurves(order, curves, { w, d, gap, street, seed }) {
       const rec = { x, z, w: bw, d: bd, row: Math.floor(setback / Math.max(1, gap)), setback };
       put.push(rec); placed.set(b.it.id, rec); ok = true; si = (si + k + 3) % slots.length;
     }
-    if (!ok) { ring += gap * 2.2; i--; }        // 沿道が埋まったら 1 列外へ（T106）
+    if (!ok) {
+      // 沿道が埋まったら 1 列外へ（T106）。**そのとき裏通りも一緒に引く。**
+      // 道を増やさずに外へ押し出すと、その建物は道に接しなくなる（T107 違反。実測 33 m 離れた）。
+      // 実際の町も、奥に家が増えれば裏通りができる。
+      ring += gap * 2.2;
+      for (const c of curves) {
+        const off = ring;
+        for (const sgn of [-1, 1]) {
+          const bank = c.pts.map((p, k) => {
+            const a = c.pts[Math.max(0, k - 1)], b2 = c.pts[Math.min(c.pts.length - 1, k + 1)];
+            const tx = b2.x - a.x, tz = b2.z - a.z; const l = Math.hypot(tx, tz) || 1;
+            return { x: p.x + (-tz / l) * off * sgn, z: p.z + (tx / l) * off * sgn };
+          });
+          for (let k = 1; k < bank.length; k++)
+            streets.push({ x0: bank[k - 1].x, z0: bank[k - 1].z, x1: bank[k].x, z1: bank[k].z, w: Math.max(4, street * 0.7) });
+        }
+      }
+      i--;
+    }
     if (ring > Math.max(w, d)) break;           // 保険
   }
   let maxD = d;
@@ -290,7 +339,7 @@ function radialCurves(w, d, seed) {
       const rr = rad * (0.92 + rnd(seed, r * 17 + i) * 0.16);
       pts.push({ x: cx + Math.cos(a) * rr, z: cz + Math.sin(a) * rr });
     }
-    curves.push({ pts, w: r === rings ? 18 : 10 });
+    curves.push({ pts, w: Math.max(4, r === rings ? 18 : 10) });
   }
   const spokes = 7;
   for (let k = 0; k < spokes; k++) {
@@ -354,13 +403,22 @@ function riverCurves(w, d, seed, spine) {
   return [{ pts: bank(-1), w: 12 }, { pts: bank(1), w: 12 }];
 }
 
+// 線分上でいちばん近い点
+function nearestOn(r, x, z) {
+  const vx = r.x1 - r.x0, vz = r.z1 - r.z0;
+  const l2 = vx * vx + vz * vz;
+  let t = l2 ? ((x - r.x0) * vx + (z - r.z0) * vz) / l2 : 0;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return { x: r.x0 + vx * t, z: r.z0 + vz * t };
+}
+
 function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 /**
  * 配置の検査。**言われた通りになっているかを数える。**
  * @returns {{ minGap, tooClose, overSize, underSize, frontLineVariance, ok }}
  */
-export function measureTown(placed, { minSize = 5, maxSize = 50, gap = 5 } = {}) {
+export function measureTown(placed, { minSize = 5, maxSize = 50, gap = 5, streets = null, minRoad = 4, maxFrontage = null } = {}) {
   const arr = [...placed.values()];
   let minGap = Infinity, tooClose = 0, overSize = 0, underSize = 0;
   for (const b of arr) {
@@ -395,10 +453,28 @@ export function measureTown(placed, { minSize = 5, maxSize = 50, gap = 5 } = {})
     const m = fs.reduce((a, v) => a + v, 0) / fs.length;
     varSum += Math.sqrt(fs.reduce((a, v) => a + (v - m) ** 2, 0) / fs.length); rows++;
   }
+  // T107 接道。**幅 minRoad 以上の道が、建物の外周から maxFrontage 以内にあるか。**
+  // 隙間がいくら狭くても、道が届いていれば町として成立する（実際の下町がそう）。
+  let noRoad = 0, worstFrontage = 0;
+  if (streets) {
+    const roads = streets.filter((s2) => (s2.w ?? 0) >= minRoad);
+    const lim = maxFrontage ?? Math.max(12, maxSize * 0.6);
+    for (const b of arr) {
+      let best = Infinity;
+      for (const r of roads) {
+        const dx = Math.abs(b.x - nearestOn(r, b.x, b.z).x) - b.w / 2;
+        const dz = Math.abs(b.z - nearestOn(r, b.x, b.z).z) - b.d / 2;
+        best = Math.min(best, Math.max(0, Math.max(dx, dz)) - (r.w ?? 0) / 2);
+      }
+      if (best > worstFrontage) worstFrontage = best;
+      if (!(best <= lim)) noRoad++;
+    }
+  }
   return {
     minGap: arr.length > 1 ? minGap : Infinity,
     tooClose: tooClose / 2, overSize, underSize,
     frontLineVariance: rows ? varSum / rows : 0,
-    ok: tooClose === 0 && overSize === 0 && underSize === 0,
+    noRoad, worstFrontage,
+    ok: tooClose === 0 && overSize === 0 && underSize === 0 && noRoad === 0,
   };
 }

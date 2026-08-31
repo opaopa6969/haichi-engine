@@ -63,5 +63,35 @@ for (const n of [1, 5, 60, 400]) {
   const r = town([], { w: 100, d: 100 });
   ok('空でも壊れない', r.placed.size === 0 && r.streets.length === 0);
 }
+
+// ── T107 接道。**不変条件は「隙間」ではなく「どの建物にも道が届いていること」。**
+// 日本の実測では建物の隙間は 0.3〜2 m しかないが、幅 4 m 以上の道が全戸に接している
+// （建築基準法 43 条: 幅 4 m 以上の道路に 2 m 以上接すること）。
+// なので隙間は用途で選び、接道はどちらのモードでも必ず守る。
+for (const realism of ['walkable', 'real']) {
+  for (const mode of ['rows', 'ribbon', 'scatter', 'radial', 'organic', 'riverine']) {
+    const r = town(items(150), { w: 700, d: 700, mode, realism, minSize: 5, maxSize: 50, gap: 5, street: 8 });
+    const m = measureTown(r.placed, { minSize: 5, maxSize: 50, gap: realism === 'real' ? 0.6 : 5, streets: r.streets, minRoad: 4 });
+    ok(`T107 ${realism}/${mode} 全戸が道に接する`, m.noRoad === 0, `接道なし ${m.noRoad} 最遠 ${m.worstFrontage.toFixed(1)}`);
+    ok(`T102 ${realism}/${mode} 最低距離を守る`, m.tooClose === 0, `近すぎ ${m.tooClose}`);
+    ok(`T101 ${realism}/${mode} 上下限を守る`, m.overSize === 0 && m.underSize === 0);
+    ok(`${realism}/${mode} 全部置かれる`, r.placed.size === 150, `${r.placed.size}`);
+  }
+}
+// real は walkable より詰まっている（そこが違いの本体）
+{
+  const a = town(items(600), { w: 700, d: 700, realism: 'walkable', gap: 5 });
+  const b = town(items(600), { w: 700, d: 700, realism: 'real', gap: 5 });
+  const ma = measureTown(a.placed, { streets: a.streets, gap: 5 });
+  const mb = measureTown(b.placed, { streets: b.streets, gap: 0.6 });
+  ok('real のほうが詰まっている', mb.minGap < ma.minGap - 2, `${mb.minGap.toFixed(2)} vs ${ma.minGap.toFixed(2)}`);
+  ok('real のほうが同じ敷地に多く入る', b.d < a.d, `奥行き real ${Math.round(b.d)} / walkable ${Math.round(a.d)}`);
+}
+// 道は minRoad を下回らせない
+{
+  const r = town(items(60), { w: 500, d: 500, street: 2, minRoad: 4 });
+  ok('道幅は minRoad 以上', r.streets.every((s) => s.w >= 4), `最小 ${Math.min(...r.streets.map((s) => s.w))}`);
+}
+
 console.log(`town: ${pass} 通過 / ${fail} 失敗`);
 process.exit(fail ? 1 : 0);
