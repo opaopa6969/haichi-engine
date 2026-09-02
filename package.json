@@ -59,5 +59,8 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/opaopa6969/haichi-engine.git"
+  },
+  "dependencies": {
+    "kazu": "git+https://github.com/opaopa6969/kazu.git#v1.0.0"
   }
 }

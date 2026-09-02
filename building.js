@@ -1,3 +1,4 @@
+import { clamp } from 'kazu';
 // 建物の塊り（マッシング）。**箱を 1 つ置くのをやめる。**
 //
 // 街が「置いた箱」に見えるのは、建物が直方体 1 個だからで、実際の建物は
@@ -168,7 +169,7 @@ function pickKind(w, d, h, levels, seed) {
   return r < 0.34 ? 'L' : r < 0.54 ? 'bar' : r < 0.72 ? 'wing' : r < 0.88 ? 'step' : 'U';
 }
 
-function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
 function bboxOf(parts) {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, y1 = 0;
   for (const p of parts) {

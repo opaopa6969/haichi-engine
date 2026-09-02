@@ -1,3 +1,4 @@
+import { clamp } from 'kazu';
 // 町の配置。**碁盤の目に等間隔で並べない。**
 //
 // treemap や grid は「面積を配る」ことは得意だが、出てくる絵は等間隔の格子になる。
@@ -412,7 +413,7 @@ function nearestOn(r, x, z) {
   return { x: r.x0 + vx * t, z: r.z0 + vz * t };
 }
 
-function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
 
 /**
  * 配置の検査。**言われた通りになっているかを数える。**
