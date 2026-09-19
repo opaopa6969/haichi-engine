@@ -329,7 +329,9 @@ export function mapability(city, opts = {}) {
       const a = ds[i], b = ds[j];
       const gx = Math.abs(a.x - b.x) - (a.w + b.w) / 2;
       const gz = Math.abs(a.z - b.z) - (a.d + b.d) / 2;
-      if (Math.max(gx, gz) < Math.max(a.w, a.d) * 0.35) adj.push([a.id, b.id]);
+      // 両地区の寸法から対称に決める（片側だけだと配列順で結果が変わる）
+      const threshold = Math.min(Math.max(a.w, a.d), Math.max(b.w, b.d)) * 0.35;
+      if (Math.max(gx, gz) < threshold) adj.push([a.id, b.id]);
     }
   }
   const byId = new Map(ds.map((d) => [d.id, d]));

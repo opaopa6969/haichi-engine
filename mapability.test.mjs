@@ -62,6 +62,17 @@ ok('知らない型は例外', (() => { try { districtParams('nope'); return fal
   const withEdge = mapability({ districts: ds, landmarks: [{ x: 0, z: 0, height: 50 }], edges: [{ x0: 0, z0: -300, x1: 0, z1: 300 }] });
   ok('M104 境に川があると一致率が上がる', withEdge.edgeAlignment > noEdge.edgeAlignment, `${withEdge.edgeAlignment} vs ${noEdge.edgeAlignment}`);
 }
+// M101: 自動 adjacency は地区の配列順に依存しない（#12）
+{
+  const mkAB = (id, x, z, w, d) => ({ id, kind: 'residential', x, z, w, d, area: w * d, trees: 10, roofs: {},
+    buildings: [{ w: 10, d: 10, height: 6 }] });
+  const a = mkAB('a', 0, 0, 100, 100);
+  const b = mkAB('b', 60, 0, 10, 10);
+  const ab = mapability({ districts: [a, b], landmarks: [] });
+  const ba = mapability({ districts: [b, a], landmarks: [] });
+  ok('配列順を入れ替えても issues が一致する', JSON.stringify(ab.issues) === JSON.stringify(ba.issues), `${JSON.stringify(ab.issues)} vs ${JSON.stringify(ba.issues)}`);
+  ok('配列順を入れ替えても sameKindAdj が一致する', ab.sameKindAdj === ba.sameKindAdj, `${ab.sameKindAdj} vs ${ba.sameKindAdj}`);
+}
 // pickFrom
 {
   ok('pickFrom は端で最後を返す', pickFrom({ a: 0.5, b: 0.5 }, 1) === 'b');
