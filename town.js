@@ -18,7 +18,8 @@
 //   T103 通りは幅 street 以上、大通りは太い
 //   T104 壁面線は揃えない（セットバックを建物ごとに散らす）
 //   T105 同じ入力・同じ seed なら同じ町になる（決定論）
-//   T106 敷地に入りきらないぶんは奥へ伸ばす（切り捨てない）
+//   T106 敷地に入りきらないぶんは奥へ伸ばす。それでも入らなければ、
+//        黙って切り捨てず unplaced に id を列挙する（#13）
 //   T107 **どの建物も、幅 minRoad 以上の道に接する**（接道義務）
 //
 // ## 隙間か、接道か
@@ -41,7 +42,7 @@ function rnd(seed, i) {
  * 町の配置を計算する。
  * @param {Array} items {id, value} の配列。value は面積の希望値（大きいほど大きい建物）
  * @param {object} opts
- *   w, d          敷地の幅・奥行き（奥行きは足りなければ超える。T106）
+ *   w, d          敷地の幅・奥行き（奥行きは足りなければ超える。それでも入らなければ unplaced へ。T106）
  *   minSize       間口・奥行きの下限（既定 5）
  *   maxSize       間口・奥行きの上限（既定 50）
  *   gap           建物どうしの最低距離（既定 5）
@@ -50,10 +51,11 @@ function rnd(seed, i) {
  *   emptyLotRate  空き地にする割合（既定 0.07）
  *   seed          乱数の種（既定 1）
  *   sizeOf        item から面積の希望値を取る関数
- * @returns {{ placed: Map, streets: Array, lots: Array, w: number, d: number, rows: number }}
+ * @returns {{ placed: Map, streets: Array, lots: Array, w: number, d: number, rows: number, unplaced: Array }}
  *   placed: id → {x, z, w, d, row, setback}（x,z は中心）
  *   streets: {x0, z0, x1, z1, w} の配列（横断する通り）
  *   lots: 空き地 {x, z, w, d}（公園や広場に使える）
+ *   unplaced: 奥へ伸ばしても入りきらなかった item の id（T106）。既定は空配列
  */
 export function town(items, {
   w = 1000, d = 1000, minSize = 5, maxSize = 50, gap: gapIn = 5, street: streetIn = 8,
@@ -66,7 +68,7 @@ export function town(items, {
   if (realism === 'real') { gap = Math.max(realGap, 0.3); street = Math.max(street, minRoad); }
   else street = Math.max(street, minRoad);
   const list = [...items];
-  if (!list.length) return { placed: new Map(), streets: [], lots: [], w, d, rows: 0 };
+  if (!list.length) return { placed: new Map(), streets: [], lots: [], w, d, rows: 0, unplaced: [] };
 
   // 1) 建物の寸法を決める。面積の希望値から辺を出し、上下限に収めて、正方形から崩す。
   //    **同じ通りに大小が混じるように、大きさ順には並べない。** 決定論的に混ぜる。
@@ -161,7 +163,7 @@ export function town(items, {
     if (x > w - street) break;
     streets.push({ x0: x, z0: 0, x1: x, z1: z, w: Math.max(minRoad, street * (0.7 + rnd(seed, k * 41) * 0.6)) });
   }
-  return { placed, streets, lots, w, d: Math.max(d, z), rows: row };
+  return { placed, streets, lots, w, d: Math.max(d, z), rows: row, unplaced: [] };
 }
 
 // 街道の両側に連なる（宿場町）。**間口が狭く、隣とほとんど隙間がない。**
@@ -190,7 +192,7 @@ function ribbon(order, { w, d, gap, street, seed, minSize }) {
     maxX = Math.max(maxX, cursor[s]);
   });
   streets[0].x1 = maxX + gap;
-  return { placed, streets, lots, w: maxX + gap, d, rows: 2 };
+  return { placed, streets, lots, w: maxX + gap, d, rows: 2, unplaced: [] };
 }
 
 // まばらに建つ（田園・山間・高台）。**道に面していなくてよい。**
@@ -222,8 +224,9 @@ function scatter(order, { w, d, gap, street, seed, minRoad = 4 }) {
       put.push(rec); placed.set(b.it.id, rec); ok = true;
     }
     if (!ok) { dd += gap * 4; i--; }                  // 入らなければ奥へ伸ばす（T106）
-    if (dd > d * 40) break;                           // 保険
+    if (dd > d * 40) break;                           // 保険。ここで諦めたぶんは unplaced へ（#13）
   }
+  const unplaced = order.filter((b) => !placed.has(b.it.id)).map((b) => b.it.id);
   // **一軒ずつ私道を引く（T107）。** まばらに建てると本道から遠く離れ、
   // 道の届かない家ができる（実測 126/150 が接道なし、最遠 703 m）。
   // 実際の農村もそうしていて、本道から各戸へ私道が伸びている。
@@ -238,7 +241,7 @@ function scatter(order, { w, d, gap, street, seed, minRoad = 4 }) {
     if (!best || bd2 < Math.max(b.w, b.d) / 2 + 2) continue;
     streets.push({ x0: best.x, z0: best.z, x1: b.x, z1: b.z, w: minRoad });
   }
-  return { placed, streets, lots, w, d: dd, rows: Math.ceil(dd / Math.max(1, gap * 3)) };
+  return { placed, streets, lots, w, d: dd, rows: Math.ceil(dd / Math.max(1, gap * 3)), unplaced };
 }
 
 // ── 曲がった道に沿って建てる。
@@ -317,11 +320,12 @@ function alongCurves(order, curves, { w, d, gap, street, seed, minRoad = 4 }) {
       }
       i--;
     }
-    if (ring > Math.max(w, d)) break;           // 保険
+    if (ring > Math.max(w, d)) break;           // 保険。ここで諦めたぶんは unplaced へ（#13）
   }
   let maxD = d;
   for (const p of put) maxD = Math.max(maxD, p.z + p.d);
-  return { placed, streets, lots, w, d: maxD, rows: 1 + Math.round(ring / Math.max(1, gap * 2.2)) };
+  const unplaced = order.filter((b) => !placed.has(b.it.id)).map((b) => b.it.id);
+  return { placed, streets, lots, w, d: maxD, rows: 1 + Math.round(ring / Math.max(1, gap * 2.2)), unplaced };
 }
 
 // 広場を中心に、環状 + 放射

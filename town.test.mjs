@@ -51,6 +51,24 @@ for (const n of [1, 5, 60, 400]) {
   ok('T106 全部置かれる', r.placed.size === 300, `${r.placed.size}`);
   ok('T106 奥行きが伸びる', r.d > 100, `d=${r.d}`);
   ok('T106 それでも最低距離は守る', measureTown(r.placed).tooClose === 0);
+  ok('T106 全部置かれれば unplaced は空', r.unplaced.length === 0, `${r.unplaced.length}`);
+}
+// T106 保険が効くほど狭い敷地では、奥へ伸ばしても入りきらないぶんが unplaced に出る（#13）。
+// scatter/radial/organic/riverine は伸ばす上限に保険（break）があり、切り捨てが起き得る。
+// 黙って捨てずに呼ぶ側から分かるようにする、というのが #13 の受け入れ条件。
+{
+  const tiny = items(20, () => 10);
+  for (const mode of ['scatter', 'radial', 'organic', 'riverine']) {
+    const r = town(tiny, { w: 10, d: 10, minSize: 5, maxSize: 50, gap: 5, mode });
+    ok(`T106 ${mode} unplaced は配列`, Array.isArray(r.unplaced));
+    ok(`T106 ${mode} 置けたかどうかが分かる（placed+unplaced=入力数）`,
+      r.placed.size + r.unplaced.length === tiny.length,
+      `placed=${r.placed.size} unplaced=${r.unplaced.length}`);
+    ok(`T106 ${mode} unplaced の id は入力の id 部分集合`,
+      r.unplaced.every((id) => tiny.some((it) => it.id === id)));
+    ok(`T106 ${mode} unplaced の id は placed と重複しない`,
+      r.unplaced.every((id) => !r.placed.has(id)));
+  }
 }
 // 空き地（公園）が出る
 {
