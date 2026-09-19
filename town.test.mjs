@@ -81,6 +81,14 @@ for (const n of [1, 5, 60, 400]) {
   const r = town([], { w: 100, d: 100 });
   ok('空でも壊れない', r.placed.size === 0 && r.streets.length === 0);
 }
+// gap<=0 でハングしない（organic/radial/riverine は道沿いに歩く歩幅を gap から作るので、
+// gap<=0 だと歩幅が 0 以下になり無限ループしうる。#9 と同型）
+for (const mode of ['organic', 'radial', 'riverine']) {
+  for (const gap of [0, -3]) {
+    const r = town(items(5), { w: 200, d: 200, mode, gap });
+    ok(`${mode} gap=${gap} でハングせず全部置かれる`, r.placed.size === 5, `${r.placed.size}/5`);
+  }
+}
 
 // ── T107 接道。**不変条件は「隙間」ではなく「どの建物にも道が届いていること」。**
 // 日本の実測では建物の隙間は 0.3〜2 m しかないが、幅 4 m 以上の道が全戸に接している

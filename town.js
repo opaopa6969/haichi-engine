@@ -251,6 +251,7 @@ function scatter(order, { w, d, gap, street, seed, minRoad = 4 }) {
 
 // 曲線を等間隔に刻む。返すのは {x,z,tx,tz,nx,nz}（接線と法線つき）
 function walkCurve(pts, step) {
+  if (!(step > 0)) step = 1;   // gap<=0/NaN から来た step でも進むよう下限を敷く（#9 と同型の無限ループを防ぐ）
   const out = [];
   let carry = 0;
   for (let i = 1; i < pts.length; i++) {
