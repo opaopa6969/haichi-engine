@@ -169,7 +169,7 @@ ok('小さい図形のラベルは外に出す（内に「…」を詰めない�
   assert.equal(p.text, '宗谷岬', '文字が切り詰められた');
 });
 
-ok('入るものは内に置く', () => {
+ok('avoidShapes は自分の図形上の inside 配置を妨げない', () => {
   const m = placeLabels([{ id: 'a', x: 0, y: 0, r: 60, label: 'ab', font: 12 }], { minFont: 9 });
   assert.equal(m.get('a').at, 'inside');
 });
@@ -465,6 +465,13 @@ ok('外から渡した障害物も避ける', () => {
   const box = { id: 'panel', x: 0, y: -20, w: 200, h: 24 };
   const l = placeLabels(S, { obstacles: [box] }).get('a');
   assert.ok(l.hidden || overlapOf({ x: l.x, y: l.y, w: l.w, h: l.h }, box, 0) <= 0, '障害物の上に置いた');
+});
+
+ok('inside に収まるラベルも明示 obstacles を避ける', () => {
+  const s = { id: 's', x: 0, y: 0, r: 60, label: 'あ', font: 12 };
+  const obstacle = { id: 'block', x: 0, y: 0, w: 40, h: 20 };
+  const l = placeLabels([s], { obstacles: [obstacle] }).get('s');
+  assert.ok(l.hidden || overlapOf(l, obstacle, 0) <= 0, `明示障害物と ${overlapOf(l, obstacle, 0).toFixed(1)}px 重なった`);
 });
 
 ok('辺を横切らない場所へ置く', () => {
