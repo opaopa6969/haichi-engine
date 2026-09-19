@@ -184,8 +184,11 @@ export function measureTerrain(t, { flat = null } = {}) {
   let flatInside = 0;
   if (flat) {
     let mx = -Infinity, mn = Infinity;
-    for (let z = flat.z0; z <= flat.z1; z += (flat.z1 - flat.z0) / 12)
-      for (let x = flat.x0; x <= flat.x1; x += (flat.x1 - flat.x0) / 12) {
+    const dx = (flat.x1 - flat.x0) / 12;
+    const dz = (flat.z1 - flat.z0) / 12;
+    for (let zi = 0; zi <= (dz === 0 ? 0 : 12); zi++)
+      for (let xi = 0; xi <= (dx === 0 ? 0 : 12); xi++) {
+        const x = flat.x0 + xi * dx, z = flat.z0 + zi * dz;
         const h = heightAt(x, z); if (h > mx) mx = h; if (h < mn) mn = h;
       }
     flatInside = mx - mn;

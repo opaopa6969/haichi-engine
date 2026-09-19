@@ -12,6 +12,17 @@ ok('のっぺりしていない（稜線がある）', m.ridgeRatio > 0.25, `rid
 ok('R104 川が端から端まで通る', m.riverCrosses);
 ok('R102 格子の外でも連続', m.continuous);
 
+// 幅または奥行きが 0 の敷地でも、測定を止めず有限な結果を返す
+{
+  const t2 = terrain({ span: 1000, res: 33, seed: 2, river: false });
+  const finiteReport = (report) => Object.values(report).every((value) =>
+    typeof value === 'boolean' || Number.isFinite(value));
+  const zeroWidth = measureTerrain(t2, { flat: { x0: 0, x1: 0, z0: -100, z1: 100 } });
+  const zeroDepth = measureTerrain(t2, { flat: { x0: -100, x1: 100, z0: 0, z1: 0 } });
+  ok('幅 0 の敷地を有限な値で測れる', finiteReport(zeroWidth));
+  ok('奥行き 0 の敷地を有限な値で測れる', finiteReport(zeroDepth));
+}
+
 // R105 川が敷地を通らない
 {
   let inside = 0;
