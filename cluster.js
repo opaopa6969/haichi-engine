@@ -67,12 +67,15 @@ function defaultSplit(target, { room, maxBlock, strategies = null, name = defaul
   }
   if (leaves.length > maxBlock && strategies) {
     const groups = groupBy(leaves, { strategies, room });
-    return groups.map((g) => ({
+    if (!groups.length) return null;
+    const parts = groups.map((g) => ({
       id: `${target.id}#${g.key}`,
       key: g.key,
       name: name(target, { name: g.key }),
       children: g.items,
     }));
+    if (subs.length) parts.push(...subs.map((s) => ({ ...s, name: name(target, s) })));   // 枝は繰り上げる。葉だけ束ねて捨てない
+    return parts;
   }
   return null;
 }
