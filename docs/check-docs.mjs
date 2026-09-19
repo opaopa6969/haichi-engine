@@ -96,9 +96,24 @@ ok('依存ゼロの契約が守られている', () => {
   assert.deepEqual(bare, [], `外部パッケージを import している（依存ゼロが壊れる）: ${bare.join(', ')}`);
 });
 
-ok('バージョンが README と package.json で一致する', () => {
+ok('バージョンとテスト数が README 内で整合する', () => {
   const v = JSON.parse(read('package.json')).version;
-  assert.ok(read('README.ja.md').includes(`v${v}`), `README に v${v} が無い`);
+  const statuses = [];
+  for (const file of ['README.md', 'README.ja.md']) {
+    const src = read(file);
+    assert.ok(src.includes(`v${v}`), `${file} に v${v} が無い`);
+    const m = src.match(/v[^。]+。(.+?) の計 (\d+) テスト。/);
+    assert.ok(m, `${file} のテスト内訳を読めない`);
+    const entries = m[1].split(' / ').map((part) => {
+      const item = part.match(/^(.+?) ([0-9]+)$/u);
+      assert.ok(item, `${file} のテスト内訳が「ラベル 非負整数」ではない: ${part}`);
+      return { label: item[1], count: Number(item[2]) };
+    });
+    const total = Number(m[2]);
+    assert.equal(entries.reduce((sum, entry) => sum + entry.count, 0), total, `${file} のテスト内訳と合計が一致しない`);
+    statuses.push({ entries, total });
+  }
+  assert.deepEqual(statuses[0], statuses[1], 'README.md と README.ja.md のテスト内訳・合計が一致しない');
 });
 
 console.error(`check-docs: ${n} pass`);

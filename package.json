@@ -1,6 +1,6 @@
 {
   "name": "haichi-engine",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "A tiny pure engine for making large structures viewable and memorable — cluster, place (2D/3D/town), shape terrain, plant greenery, and measure whether it is readable and mappable. Decides WHERE things go, never draws them. Dependency-free, deterministic, headless-testable.",
   "type": "module",
   "main": "index.js",
