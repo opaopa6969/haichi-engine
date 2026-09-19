@@ -43,6 +43,18 @@ ok('直下の葉を行き場を失わせない', () => {
   assert.ok(all.includes('直下'), '直下の葉が消えた');
 });
 
+ok('枝と葉が混在する節点を割っても枝を捨てない（#10）', () => {
+  // 枝 1 個（葉 5）+ 葉 130 枚。葉だけで maxBlock(120) を超えるので groupBy 経路に入る
+  const t = branch('root', [
+    branch('branch', [leaf('n1'), leaf('n2'), leaf('n3'), leaf('n4'), leaf('n5')]),
+    ...Array.from({ length: 130 }, (_, i) => leaf(`L${i}`, { k: `g${i % 4}` })),
+  ]);
+  const before = leafCount(t);
+  const out = splitBySize([t], { strategies: [(x) => x.k] });
+  assert.equal(out.reduce((s, x) => s + leafCount(x), 0), before, '葉の総数が保たれない');
+  assert.ok(out.some((x) => x.id === 'branch'), '枝が消えた');
+});
+
 ok('groupBy は戦略を順に試し、偏ったら次へ', () => {
   // 1 つ目の戦略は全部同じキー（＝偏る）、2 つ目で割れる
   const items = Array.from({ length: 20 }, (_, i) => ({ id: `x${i}`, dir: 'same', role: i % 4 }));
