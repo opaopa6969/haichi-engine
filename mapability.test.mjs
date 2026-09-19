@@ -72,6 +72,16 @@ ok('知らない型は例外', (() => { try { districtParams('nope'); return fal
   const ba = mapability({ districts: [b, a], landmarks: [] });
   ok('配列順を入れ替えても issues が一致する', JSON.stringify(ab.issues) === JSON.stringify(ba.issues), `${JSON.stringify(ab.issues)} vs ${JSON.stringify(ba.issues)}`);
   ok('配列順を入れ替えても sameKindAdj が一致する', ab.sameKindAdj === ba.sameKindAdj, `${ab.sameKindAdj} vs ${ba.sameKindAdj}`);
+  for (const [x, expected] of [[58, 1], [58.5, 0], [60, 0]]) {
+    const near = { ...b, x };
+    for (const districts of [[a, near], [near, a]]) {
+      const result = mapability({ districts });
+      ok(`中心間 ${x} の自動隣接（先頭 ${districts[0].id}）`, result.sameKindAdj === expected);
+      ok(`中心間 ${x} の M101（先頭 ${districts[0].id}）`, result.issues.some(i => i.rule === 'M101') === Boolean(expected));
+    }
+  }
+  ok('明示 adjacency は自動判定より優先', mapability({ districts: [a, b], adjacency: [['a', 'b']] }).sameKindAdj === 1);
+  ok('空の adjacency は自動判定を無効にする', mapability({ districts: [a, { ...b, x: 50 }], adjacency: [] }).sameKindAdj === 0);
 }
 // pickFrom
 {

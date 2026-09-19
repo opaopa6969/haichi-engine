@@ -310,6 +310,8 @@ function sigDist(a, b) {
  * @param {object} city
  *   districts [{id, kind, x, z, w, d, buildings, trees, area, roofs}]
  *   adjacency [[idA, idB], ...]（隣接。無ければ矩形の近さから作る）
+ *     自動判定: 軸方向の矩形間隔の最大値 < min(max(wA,dA),max(wB,dB)) * 0.35。
+ *     明示した adjacency（空配列を含む）はそのまま使う。
  *   landmarks [{x, z, height}]（尖塔・塔・大きな建物など、遠くから見えるもの）
  *   edges     [{x0,z0,x1,z1}]（川・線路・大通りなど、地区を分ける切れ目）
  * @param {object} opts sameKindMax（同型隣接の許容割合）, sightRange（目印が見える距離）,
