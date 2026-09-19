@@ -55,7 +55,7 @@ ok('README から docs へのリンクが切れていない', () => {
 
 ok('依存ゼロの契約が守られている', () => {
   // README の設計契約に「依存ゼロ」と書いてある。**これは文章ではなく仕掛けで守る。**
-  // CI（.github/workflows/pages.yml）は npm install を走らせないし、デモはブラウザが
+  // CI（.github/workflows/ci.yml と pages.yml）は npm install を走らせないし、デモはブラウザが
   // index.js をそのまま読む。外部パッケージを 1 つ import した時点で、
   // テストもデモも一斉に落ちる（v0.5.0 で実際に起きて main の CI が止まった）。
   const pkg = JSON.parse(read('package.json'));

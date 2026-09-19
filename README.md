@@ -2,6 +2,8 @@
 
 **English** · [日本語](./README.ja.md)
 
+[![ci](https://github.com/opaopa6969/haichi-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/opaopa6969/haichi-engine/actions/workflows/ci.yml)
+
 > 「**どこに置くか**」だけを決める小さな純粋幾何エンジン。描画はしない。
 > 置いた結果が**読めるかどうかを測って返す**のが、他の配置ライブラリと違うところ。
 
