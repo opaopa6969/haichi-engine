@@ -386,14 +386,17 @@ export function placeLabels(shapes, opts = {}) {
     const se = s.r != null ? s.r : Math.max(s.w ?? 0, s.h ?? 0) / 2;
     return oe > se && Math.hypot(o.x - s.x, o.y - s.y) + se <= oe + 1e-6;
   };
+  const hitsHardObstacle = (box) => {
+    for (const o of hardObs) if (overlapOf(box, o, gap) > 0) return true;
+    return false;
+  };
   const hitsObstacle = (box, self) => {
     for (const o of shapeObs) {
       if (o.id === self.id) continue;                // 自分の図形の上に載るのは正しい（inside）
       if (contains(o, self)) continue;               // 自分を包む図形は避けない（入れ子は当たり前）
       if (overlapOf(box, o, gap) > 0) return true;
     }
-    for (const o of hardObs) if (overlapOf(box, o, gap) > 0) return true;
-    return false;
+    return hitsHardObstacle(box);
   };
   const hitsEdge = (box, selfId) => {
     for (const { a, b } of segs) {
@@ -427,7 +430,7 @@ export function placeLabels(shapes, opts = {}) {
       const x = s.x + c.dx * (ext + fullW / 2 + gap), y = s.y + c.dy * (ext + th / 2 + gap);
       const box = { id: s.id, x, y, w: fullW, h: th };
       if (taken.some((t) => rectOverlap(box, t, gap) > 0)) { blockedBy ??= 'ラベル'; continue; }
-      if (c.at === 'outside' && hitsObstacle(box, s)) { blockedBy ??= '図形'; continue; }
+      if ((c.at === 'inside' ? hitsHardObstacle(box) : hitsObstacle(box, s))) { blockedBy ??= '図形'; continue; }
       if (c.at === 'outside' && hitsEdge(box, s.id)) { blockedBy ??= '辺'; continue; }
       if (!insideBounds(box)) { blockedBy ??= '領域の外'; continue; }
       placed = { ...box, text: s.label, font, at: c.at };
