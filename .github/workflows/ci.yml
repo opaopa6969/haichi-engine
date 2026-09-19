@@ -1,0 +1,31 @@
+# PR の時点でテストを走らせる。
+# pages.yml は main への push でしか動かないので、壊れた変更は **merge されてから** 赤くなっていた。
+# v0.5.0 で依存ゼロが壊れて main の CI が 17 日間落ちたまま放置されたのが、それ（Issue #3）。
+# ここで止めれば main は常に緑のままになる。
+name: ci
+on:
+  pull_request: { branches: [main] }
+  push: { branches: [main] }
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # 通ることを実測で確認した範囲。node 18 はテストが `String.prototype.isWellFormed`
+      # を使うため落ちる（ライブラリ本体は 18 でも動く）ので入れていない。
+      matrix:
+        node: ['20', '22', '24']
+    name: test (node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}' }
+      # **install は無い。** 依存ゼロの契約は文章ではなく、ここで守る。
+      # 外部パッケージを 1 つ import した時点で import が解決できず落ちる。
+      - run: npm test
