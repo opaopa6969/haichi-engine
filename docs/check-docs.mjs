@@ -96,9 +96,17 @@ ok('依存ゼロの契約が守られている', () => {
   assert.deepEqual(bare, [], `外部パッケージを import している（依存ゼロが壊れる）: ${bare.join(', ')}`);
 });
 
-ok('バージョンが README と package.json で一致する', () => {
+ok('バージョンとテスト数が README 内で整合する', () => {
   const v = JSON.parse(read('package.json')).version;
-  assert.ok(read('README.ja.md').includes(`v${v}`), `README に v${v} が無い`);
+  for (const file of ['README.md', 'README.ja.md']) {
+    const src = read(file);
+    assert.ok(src.includes(`v${v}`), `${file} に v${v} が無い`);
+    const m = src.match(/v[^。]+。(.+?) の計 (\d+) テスト。/);
+    assert.ok(m, `${file} のテスト内訳を読めない`);
+    const counts = m[1].split(' / ').map((part) => Number(part.match(/(\d+)$/)?.[1]));
+    assert.ok(counts.every(Number.isFinite), `${file} のテスト内訳に数で終わらない項目がある`);
+    assert.equal(counts.reduce((sum, count) => sum + count, 0), Number(m[2]), `${file} のテスト内訳と合計が一致しない`);
+  }
 });
 
 console.error(`check-docs: ${n} pass`);
