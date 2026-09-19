@@ -83,7 +83,7 @@ zumen（ソフトウェア構造の可視化）で実測したところ、174 �
 | `tree(items, opts)` | 階層。親を子の中央に | 継承・依存の向きを見せたいとき |
 | `treemap(items, opts)` | squarified treemap | 量の比較、街区の生成 |
 | `relax(items, opts)` | 重なりを押し離す。`axis` `maxMove` `grid` `bounds` で縛れる | 既にある座標を微調整する。**`bounds` を渡すと領域の外へ押し出さない**（外に出して重なりを消すのは解決ではない） |
-| `grid(items, opts)` | 順序を保って並べる（row / column / grid）。`cols` で折返し、`gapAfter` で個別の間隔 | 手牌・河・ツールバーのように**順番が意味を持つ**もの。入りきらない量は `overflow` で返す（勝手に縮めない） |
+| `grid(items, opts)` | 順序を保って並べる（row / column / grid）。`cols` で折返し、`gapAfter` で個別の間隔 | 手牌・河・ツールバーのように**順番が意味を持つ**もの。入りきらない量は `overflow`、軸別は `overflowX` / `overflowY` で返す（勝手に縮めない） |
 | `placeLabels(shapes, opts)` | ラベルを中／周囲 8 方向へ。`prefer:'outside'` `allowInside` `dirOrder` `priority` で方針を変えられる | **内に入るかは切り詰める前の全長で判断する**（切り詰めた「…」で判定すると全部内側に詰まる）。置けなければ `hidden: true` |
 
 ### 測定
@@ -243,7 +243,7 @@ ZIR（描画非依存の JSON）を入れ子に畳み、配置と測定を返す
 
 ## 状態
 
-v0.5.1。2D 71 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 認知 21 / 集約 14 / 町 80 / 地形 16 / 植生 13 / 認知地図 14 / 樹形 45 / 塊り 170 / 文書の実行 11 / 文書の整合 6 の計 523 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
+v0.5.2。2D 73 / 3D 22 / zumen 連携 5 / game 連携 15 / Web 連携 11 / 認知 21 / 集約 14 / 町 80 / 地形 16 / 植生 13 / 認知地図 14 / 樹形 45 / 塊り 170 / 文書の実行 11 / 文書の整合 6 の計 525 テスト。\n\n文書に載せたコードは `docs/examples.mjs` が実際に実行し、規則と API の一覧は `docs/check-docs.mjs` が実装と突き合わせる。**文書が嘘をつくのを機械で止めている。**
 
 ```
 npm test

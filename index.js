@@ -680,6 +680,7 @@ function clampToBounds(it, b) {
  * 順序を保った並べ方（row / column / grid）。
  * 手牌・河・ツールバーのように「順番が意味を持つ」ものは、押し離しでは並べられない。
  * 領域に入りきらないときは overflow に「はみ出した量」を返す（**勝手に縮めない**）。
+ * 軸別の量が必要なら overflowX / overflowY を使う。
  *   items: [{ id, w, h, gapAfter? }]
  */
 export function grid(items, opts = {}) {
@@ -710,6 +711,12 @@ export function grid(items, opts = {}) {
     }
     cy += h + rg;
   }
-  const overflow = bounds ? Math.max(0, maxW - bounds.w) : 0;
-  return { items: out, rows: rows.length, width: maxW, height: cy - y - rg, overflow };
+  // 空入力で `-gap` を返さず、配置した行があるときだけ末尾の rowGap を除く。
+  const height = rows.length ? cy - y - rg : 0;
+  const overflowX = bounds ? Math.max(0, maxW - bounds.w) : 0;
+  const overflowY = bounds ? Math.max(0, height - bounds.h) : 0;
+  // 既存の数値 API は維持しつつ、「領域に入りきらない量」という契約どおり
+  // どちらかの軸がはみ出せば非ゼロにする。
+  const overflow = Math.max(overflowX, overflowY);
+  return { items: out, rows: rows.length, width: maxW, height, overflow, overflowX, overflowY };
 }

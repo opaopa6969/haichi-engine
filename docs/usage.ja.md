@@ -115,7 +115,7 @@ import { grid } from 'haichi-engine';
 const tiles = Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, w: 36, h: 52 }));
 tiles[12].gapAfter = 20;        // ツモ牌の前だけ空ける
 
-const { items, rows, width, overflow } = grid(tiles, {
+const { items, rows, width, overflow, overflowX, overflowY } = grid(tiles, {
   x: 0, y: 0, gap: 4,
   bounds: { w: 355, h: 200 },   // 幅を超えたら折り返す
   align: 'center',
@@ -123,7 +123,7 @@ const { items, rows, width, overflow } = grid(tiles, {
 if (overflow > 0) console.log(`${overflow}px 入りきらない`);
 ```
 
-`cols` を渡せば固定列数で折り返す。**入りきらない量は `overflow` で返すだけで、勝手に縮めない**。縮めるか、スクロールにするか、数を減らすかは呼ぶ側が決めること。
+`cols` を渡せば固定列数で折り返す。**入りきらない量は `overflow`（縦横の大きい方）で返すだけで、勝手に縮めない**。軸別の量は `overflowX` / `overflowY` で取れる。縮めるか、スクロールにするか、数を減らすかは呼ぶ側が決めること。
 
 ---
 

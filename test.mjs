@@ -298,6 +298,29 @@ ok('grid は gapAfter で牌の間隔を空けられる（ツモ牌）', () => {
   assert.ok(m.get('b').x - m.get('a').x > 30 + 4 + 10, '間隔が空いていない');
 });
 
+ok('grid は bounds の縦横それぞれの超過量を返す', () => {
+  const vertical = grid(Array.from({ length: 5 }, (_, i) => ({ id: `v${i}`, w: 40, h: 40 })),
+    { cols: 2, gap: 10, bounds: { w: 100, h: 100 } });
+  assert.equal(vertical.height, 140);
+  assert.equal(vertical.overflowX, 0);
+  assert.equal(vertical.overflowY, 40);
+  assert.equal(vertical.overflow, 40, '縦にはみ出しているのに overflow が 0');
+
+  const horizontal = grid([{ id: 'wide', w: 140, h: 20 }], { bounds: { w: 100, h: 100 } });
+  assert.equal(horizontal.overflowX, 40);
+  assert.equal(horizontal.overflowY, 0);
+  assert.equal(horizontal.overflow, 40);
+});
+
+ok('grid は空入力の寸法と超過量を 0 で返す', () => {
+  const result = grid([], { gap: 4, bounds: { w: 100, h: 100 } });
+  assert.deepEqual(
+    { rows: result.rows, width: result.width, height: result.height, overflow: result.overflow,
+      overflowX: result.overflowX, overflowY: result.overflowY },
+    { rows: 0, width: 0, height: 0, overflow: 0, overflowX: 0, overflowY: 0 },
+  );
+});
+
 
 // --- 形が混在するときの重なり判定（codex が tetsugo 評価のついでに見つけた）
 
