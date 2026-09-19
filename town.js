@@ -45,7 +45,7 @@ function rnd(seed, i) {
  *   w, d          敷地の幅・奥行き（奥行きは足りなければ超える。それでも入らなければ unplaced へ。T106）
  *   minSize       間口・奥行きの下限（既定 5）
  *   maxSize       間口・奥行きの上限（既定 50）
- *   gap           建物どうしの最低距離（既定 5）
+ *   gap           建物どうしの最低距離（既定 5）。非正値でも再試行は前進し、置けない id は unplaced へ
  *   street        通りの幅（既定 8）。数本に 1 本は大通りになる
  *   avenueEvery   何列ごとに大通りを入れるか（既定 4）
  *   emptyLotRate  空き地にする割合（既定 0.07）
@@ -223,7 +223,8 @@ function scatter(order, { w, d, gap, street, seed, minRoad = 4 }) {
       const rec = { x, z, w: b.w, d: b.d, row: Math.floor(z / Math.max(1, gap * 3)), setback: 0 };
       put.push(rec); placed.set(b.it.id, rec); ok = true;
     }
-    if (!ok) { dd += gap * 4; i--; }                  // 入らなければ奥へ伸ばす（T106）
+    // 非正の gap でも奥行きを増やし、再試行の上限に到達できるようにする（T106）。
+    if (!ok) { dd += gap > 0 ? gap * 4 : 1; i--; }
     if (dd > d * 40) break;                           // 保険。ここで諦めたぶんは unplaced へ（#13）
   }
   const unplaced = order.filter((b) => !placed.has(b.it.id)).map((b) => b.it.id);
@@ -306,7 +307,8 @@ function alongCurves(order, curves, { w, d, gap, street, seed, minRoad = 4 }) {
       // 沿道が埋まったら 1 列外へ（T106）。**そのとき裏通りも一緒に引く。**
       // 道を増やさずに外へ押し出すと、その建物は道に接しなくなる（T107 違反。実測 33 m 離れた）。
       // 実際の町も、奥に家が増えれば裏通りができる。
-      ring += gap * 2.2;
+      // 非正の gap でも外側への探索を前進させ、上限で unplaced を返す。
+      ring += gap > 0 ? gap * 2.2 : 1;
       for (const c of curves) {
         const off = ring;
         for (const sgn of [-1, 1]) {

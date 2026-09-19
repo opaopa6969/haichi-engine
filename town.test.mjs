@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { town, measureTown } from './town.js';
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; } else { fail++; console.error(`NG ${name} ${extra}`); } };
@@ -87,6 +88,31 @@ for (const mode of ['organic', 'radial', 'riverine']) {
   for (const gap of [0, -3]) {
     const r = town(items(5), { w: 200, d: 200, mode, gap });
     ok(`${mode} gap=${gap} でハングせず全部置かれる`, r.placed.size === 5, `${r.placed.size}/5`);
+  }
+}
+
+// 狭い敷地で再試行が必要な場合も終了する。回帰してもテスト自体がハングしないよう子プロセスで検査。
+for (const mode of ['scatter', 'organic', 'radial', 'riverine']) {
+  for (const gap of [0, -0.1]) {
+    const probe = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import assert from 'node:assert/strict';
+      import { town } from './town.js';
+      const items = Array.from({ length: 20 }, (_, id) => ({ id, value: 10 }));
+      const opts = { w: 10, d: 10, mode: ${JSON.stringify(mode)}, gap: ${gap} };
+      const a = town(items, opts);
+      assert.deepEqual(a, town(items, opts));
+      assert.equal(a.placed.size + a.unplaced.length, items.length);
+      assert.deepEqual(new Set([...a.placed.keys(), ...a.unplaced]), new Set(items.map(it => it.id)));
+      assert(a.unplaced.every(id => !a.placed.has(id)));
+      assert([...a.placed.values()].every(b => [b.x, b.z, b.w, b.d].every(Number.isFinite)));
+      assert([a.w, a.d, a.rows].every(Number.isFinite));
+      // scatterGap は gap より優先される別の入口。
+      if (opts.mode === 'scatter') {
+        assert.deepEqual(a, town(items, { ...opts, gap: 5, scatterGap: opts.gap * 6 }));
+      }
+    `], { cwd: new URL('.', import.meta.url), timeout: 5000, encoding: 'utf8' });
+    ok(`${mode} 狭い敷地 gap=${gap} で終了し入力を保存`, probe.status === 0,
+      probe.error?.message ?? probe.stderr);
   }
 }
 
