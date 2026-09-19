@@ -53,6 +53,49 @@ ok('README から docs へのリンクが切れていない', () => {
   }
 });
 
+ok('依存ゼロの契約が守られている', () => {
+  // README の設計契約に「依存ゼロ」と書いてある。**これは文章ではなく仕掛けで守る。**
+  // CI（.github/workflows/pages.yml）は npm install を走らせないし、デモはブラウザが
+  // index.js をそのまま読む。外部パッケージを 1 つ import した時点で、
+  // テストもデモも一斉に落ちる（v0.5.0 で実際に起きて main の CI が止まった）。
+  const pkg = JSON.parse(read('package.json'));
+  for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+    const names = Object.keys(pkg[field] ?? {});
+    assert.deepEqual(names, [], `package.json の ${field} は空でなければならない（依存ゼロ）: ${names.join(', ')}`);
+  }
+  const files = [];
+  (function walk(dir) {
+    for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = dir ? `${dir}/${e.name}` : e.name;
+      if (e.name === 'node_modules' || e.name.startsWith('.')) continue;
+      if (e.isDirectory()) walk(rel);
+      else if (/\.(js|mjs)$/.test(e.name)) files.push(rel);
+    }
+  })('');
+  // コメントの中の「使用例」（`import { pack } from 'haichi-engine'`）を拾わないよう、
+  // 先にコメントを落とす。引用符の中の `//`（URL）は消さない
+  const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map((line) => {
+    let q = null;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (q) { if (c === '\\') i++; else if (c === q) q = null; continue; }
+      if (c === '"' || c === "'" || c === '`') { q = c; continue; }
+      if (c === '/' && line[i + 1] === '/') return line.slice(0, i);
+    }
+    return line;
+  }).join('\n');
+  const bare = [];
+  for (const f of files) {
+    const src = stripComments(read(f));
+    for (const m of [...src.matchAll(/\bfrom\s*['"]([^'"]+)['"]/g), ...src.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]/g)]) {
+      const spec = m[1];
+      if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) continue;
+      bare.push(`${f} → ${spec}`);
+    }
+  }
+  assert.deepEqual(bare, [], `外部パッケージを import している（依存ゼロが壊れる）: ${bare.join(', ')}`);
+});
+
 ok('バージョンが README と package.json で一致する', () => {
   const v = JSON.parse(read('package.json')).version;
   assert.ok(read('README.ja.md').includes(`v${v}`), `README に v${v} が無い`);
