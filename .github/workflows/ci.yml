@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, haichi-engine-ci]
     strategy:
       fail-fast: false
       # 通ることを実測で確認した範囲。node 18 はテストが `String.prototype.isWellFormed`
